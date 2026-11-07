@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script>(function(){var m=location.search.match(/[?&]session_id=([^&#]*)/),id='';try{id=m?decodeURIComponent(m[1]):'';}catch(e){}try{if(id)sessionStorage.setItem('sumline.paid',id);else id=sessionStorage.getItem('sumline.paid')||'';}catch(e){}window.__SUMLINE_SID=id;if(location.search){try{history.replaceState(null,'',location.pathname+location.hash);}catch(e){}}})();</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Sumline: payment</title>
+
+<meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14161a" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="./favicon.ico" sizes="32x32">
+<link rel="icon" href="./favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="stylesheet" href="./site.css">
+<script src="./config.js"></script>
+</head>
+<body data-page="paid" data-mode-default="st">
+<header class="site-header">
+  <a class="skip-link" href="#tool">Skip to the converter</a>
+  <a class="wordmark" href="./"><svg class="mark" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false"><path d="M8 4h9M11 8h6M6 12h11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 15.5h14M3 18h14" stroke="currentColor" stroke-width="1.5"/></svg><span class="wordmark__sum">Sum</span><span class="wordmark__line">line</span></a>
+</header>
+<main id="main">
+  <section class="paid" aria-labelledby="paid-h1">
+    <h1 id="paid-h1">Checking your payment…</h1>
+    <div class="code-box" id="paid-code" hidden>
+      <p class="code-box__label">Your purchase code</p>
+      <p class="code-box__value"><code id="paid-sid"></code> <button type="button" class="btn btn--small" id="copy-sid">Copy</button></p>
+      <p class="small muted" id="paid-keep"></p>
+    </div>
+    <div class="paid__wait" id="paid-wait" hidden></div>
+  </section>
+  <section id="tool" class="tool" data-state="input" data-mode="st" aria-labelledby="tool-legend" tabindex="-1">
+  <noscript><p class="msg msg--error" data-error="E32">Sumline reads your files inside your browser, so it needs JavaScript turned on.</p></noscript>
+  <div class="phase phase--input" data-phase="input">
+    <fieldset class="doc-toggle">
+      <legend id="tool-legend">What are you converting?</legend>
+      <label class="pill"><input type="radio" name="doctype" value="st" checked><span>Statements</span></label>
+      <label class="pill"><input type="radio" name="doctype" value="rc"><span>Receipts</span></label>
+    </fieldset>
+    <div class="dropzone" id="dropzone" data-drag="off">
+      <input type="file" id="file-input" class="visually-hidden dropzone__input" multiple accept=".pdf,image/jpeg,image/png,image/webp,image/heic,image/heif">
+      <label for="file-input" class="dropzone__label">
+        <span class="dropzone__sentence only-wide" data-for="st">Drop statement PDFs here, or</span>
+        <span class="dropzone__sentence only-wide" data-for="rc" hidden>Drop receipt photos or PDFs here, or</span>
+        <span class="btn btn--primary dropzone__button only-wide">Choose files</span>
+        <span class="btn btn--primary dropzone__button only-narrow">Choose PDFs or photos</span>
+      </label>
+      <p class="dropzone__hint small muted">PDF, JPG, PNG, WebP or HEIC · up to 50 files · nothing leaves this tab until you press Run my paid job</p>
+    </div>
+    <p class="status-line small" id="read-status" aria-live="polite" data-state="idle"></p>
+    <p class="msg msg--note" id="photo-note" hidden>Photos are read as statement pages. Converting receipts? Switch to Receipts above.</p>
+    <div class="intake-alerts" id="intake-alerts" role="alert" hidden></div>
+    <ul class="file-list" id="file-list" hidden></ul>
+  </div>
+  <div class="phase phase--preview" data-phase="preview" id="preview" hidden>
+    <h2 id="preview-h" tabindex="-1">Your preview</h2>
+    <p class="small muted preview__note">Read by code in your browser. No AI was used for this preview.</p>
+    <div class="cards" id="cards"></div>
+    <div class="scans" id="scans" hidden>
+      <p class="scans__counts small" id="scan-counts"></p>
+      <ul class="thumb-grid" id="thumbs"></ul>
+    </div>
+    <div class="job-alerts" id="job-alerts"></div>
+    <div class="pricebox" id="pricebox"></div>
+    <div class="pay-panel" id="pay-panel" role="status" hidden></div>
+  </div>
+  <div class="phase phase--run" data-phase="run" id="run" hidden>
+    <h2 id="run-h" tabindex="-1"></h2>
+    <div class="run" id="run-body"></div>
+  </div>
+</section>
+</main>
+<footer class="site-footer">
+  <nav aria-label="Sumline">
+    <ul class="footer-links">
+      <li><button type="button" class="footer-link" data-panel="report" aria-expanded="false" aria-controls="panel-report">Report a problem</button></li>
+      <li><a class="footer-link" data-portal href="https://billing.stripe.com/p/login/00w5kCbck3583pQfGLb7y00" target="_blank" rel="noopener">Manage subscription<span class="visually-hidden"> (opens Stripe in a new tab)</span></a></li>
+      <li><button type="button" class="footer-link" data-panel="restore" aria-expanded="false" aria-controls="panel-restore">Restore purchase</button></li>
+      <li><button type="button" class="footer-link" data-panel="forget" aria-expanded="false" aria-controls="panel-forget">Forget my purchases</button></li>
+      <li><a class="footer-link" href="./privacy.html">Privacy</a></li>
+      <li><a class="footer-link" href="./terms.html">Terms</a></li>
+      <li><a class="footer-link" href="https://tools.xirdie.com/">More tools</a></li>
+    </ul>
+  </nav>
+  <section class="footer-panel" id="panel-report" data-panel-body="report" data-state="closed" hidden aria-label="Report a problem">
+    <form class="report-form" novalidate>
+      <label for="bug-report">What happened? (required)</label>
+      <textarea id="bug-report" name="report" class="input" rows="4" maxlength="2000" required aria-describedby="bug-hint"></textarea>
+      <p class="small muted" id="bug-hint">Please don't paste account numbers or statement rows.</p>
+      <label for="bug-email">Your email (optional, only to reply)</label>
+      <input id="bug-email" name="email" class="input" type="email" maxlength="200" autocomplete="email">
+      <p class="small">We'll also send this page's address, your browser, and your purchase code if this browser has one. <button type="button" class="btn btn--link" data-action="see" aria-expanded="false" aria-controls="bug-see">See exactly what we send</button></p>
+      <pre class="report-form__see small" id="bug-see" data-role="see" hidden></pre>
+      <div class="report-form__turnstile" data-role="turnstile"></div>
+      <button type="submit" class="btn btn--primary btn--block">Send report</button>
+      <p class="report-form__result" data-role="result" aria-live="polite"></p>
+    </form>
+  </section>
+  <section class="footer-panel" id="panel-restore" data-panel-body="restore" data-state="closed" hidden aria-label="Restore purchase">
+    <form class="restore-form" novalidate>
+      <label for="restore-code">Purchase code</label>
+      <input id="restore-code" name="code" class="input input--mono" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="100">
+      <button type="submit" class="btn">Restore</button>
+      <p class="restore-form__result" data-role="result" aria-live="polite"></p>
+    </form>
+  </section>
+  <section class="footer-panel" id="panel-forget" data-panel-body="forget" data-state="closed" hidden aria-label="Forget my purchases">
+    <p data-role="prompt"></p>
+    <div class="footer-panel__actions">
+      <button type="button" class="btn" data-action="forget">Forget</button>
+      <button type="button" class="btn btn--quiet" data-action="keep">Keep</button>
+    </div>
+    <p data-role="result" role="status"></p>
+  </section>
+  <p class="small footer-disclosure">Automated extraction. Scanned pages and receipts are read by AI (Claude Haiku 5.5 by Anthropic; pages whose balance didn't add up are re-read by Claude Sonnet 5.5) and checked by arithmetic, not by a person. Text PDFs are read by code in your browser.</p>
+  <p class="small footer-contact">Contact: <a href="mailto:business@xirdie.com">business@xirdie.com</a></p>
+</footer>
+<script src="./assets/motion.js"></script>
+<script type="module" src="./js/app.js"></script>
+<style>#studio-preview{position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#111;color:#fff;font:13px/1.4 system-ui,sans-serif;padding:8px 14px;text-align:center;opacity:.93}#studio-preview code{color:#9cf}</style>
+<div id="studio-preview">Preview build 1 - not public - purchases disabled. Notes: <code>studio.py feedback statements-and-receipts-to-spreadsheet "..."</code> &middot; approve: <code>studio.py approve statements-and-receipts-to-spreadsheet</code></div>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta name="robots" content="noindex, nofollow">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sumline privacy: what leaves your browser and how long anything is kept</title>
+<meta name="description" content="How Sumline handles your statements and receipts: text PDFs read in your browser, scanned pages sent to Anthropic after you pay (kept up to 30 days), purchase records, bug reports.">
+<link rel="canonical" href="https://tools.xirdie.com/statements-and-receipts-to-spreadsheet-preview/privacy.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Sumline">
+<meta property="og:title" content="Sumline privacy: what leaves your browser and how long anything is kept">
+<meta property="og:description" content="How Sumline handles your statements and receipts: text PDFs read in your browser, scanned pages sent to Anthropic after you pay (kept up to 30 days), purchase records, bug reports.">
+<meta property="og:url" content="https://tools.xirdie.com/statements-and-receipts-to-spreadsheet-preview/privacy.html">
+<meta property="og:image" content="https://tools.xirdie.com/statements-and-receipts-to-spreadsheet-preview/assets/og/index.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Sumline privacy: what leaves your browser and how long anything is kept">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14161a" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="./favicon.ico" sizes="32x32">
+<link rel="icon" href="./favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="stylesheet" href="./site.css">
+<script src="./config.js"></script>
+</head>
+<body data-page="static">
+<header class="site-header">
+  <a class="skip-link" href="#main">Skip to the content</a>
+  <a class="wordmark" href="./"><svg class="mark" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false"><path d="M8 4h9M11 8h6M6 12h11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 15.5h14M3 18h14" stroke="currentColor" stroke-width="1.5"/></svg><span class="wordmark__sum">Sum</span><span class="wordmark__line">line</span></a>
+</header>
+<main id="main" class="prose">
+  <h1>Privacy</h1>
+  <section>
+    <h2>Your files</h2>
+    <ul>
+      <li>Text PDFs are read in your browser. When their rows add up, they never leave your device.</li>
+      <li>Scanned pages, receipt photos, and the text of pages that don't add up are sent after you pay, a few pages at a time, through our server to Anthropic (Claude), which reads the rows. Our server passes each page on and keeps no copy.</li>
+      <li>Anthropic keeps API data for up to 30 days, then deletes it (<a href="https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data" rel="noopener">Anthropic's data retention</a>).</li>
+      <li>Your files, page images and spreadsheet stay in this tab's memory. We clear your files and page images when you download, and everything when you close the tab.</li>
+    </ul>
+  </section>
+  <section>
+    <h2>Payments and purchase records</h2>
+    <ul>
+      <li>Stripe handles payment. We see your email and your order (the checkout record), never your card. Your purchase code is kept in this browser so you can use remaining pages; 'Forget my purchases' removes it.</li>
+      <li>We keep each job's page counts, a fingerprint (hash) of the files (never their content), which pages were read and the purchase id for 30 days (one-off) or while your pack or plan lasts, so pages can't be used twice. For packs and plans that record is filed under your Stripe customer id.</li>
+    </ul>
+  </section>
+  <section>
+    <h2>Our server, analytics and bug reports</h2>
+    <ul>
+      <li>A keyed hash of your IP address, kept 48 hours, limits bug reports; a short-lived per-address rate limit on our server protects it from floods.</li>
+      <li>Our server, the anti-bot check and our cookieless analytics run on Cloudflare, which sees your IP address and browser details as any host does.</li>
+      <li>Bug reports (what happened, the page, your browser, your purchase code if any, and your email if you give it) go to our private records; the email is used only to reply.</li>
+      <li>A bug report waits on our server until our weekly import, at most about a week, then moves to our private records, which are kept and not deleted on a schedule.</li>
+      <li>Contact: <a href="mailto:business@xirdie.com">business@xirdie.com</a>.</li>
+    </ul>
+  </section>
+  <p><a href="./">Back to Sumline</a></p>
+</main>
+<footer class="site-footer">
+  <nav aria-label="Sumline">
+    <ul class="footer-links">
+      <li><button type="button" class="footer-link" data-panel="report" aria-expanded="false" aria-controls="panel-report">Report a problem</button></li>
+      <li><a class="footer-link" data-portal href="https://billing.stripe.com/p/login/00w5kCbck3583pQfGLb7y00" target="_blank" rel="noopener">Manage subscription<span class="visually-hidden"> (opens Stripe in a new tab)</span></a></li>
+      <li><button type="button" class="footer-link" data-panel="restore" aria-expanded="false" aria-controls="panel-restore">Restore purchase</button></li>
+      <li><button type="button" class="footer-link" data-panel="forget" aria-expanded="false" aria-controls="panel-forget">Forget my purchases</button></li>
+      <li><a class="footer-link" href="./privacy.html">Privacy</a></li>
+      <li><a class="footer-link" href="./terms.html">Terms</a></li>
+      <li><a class="footer-link" href="https://tools.xirdie.com/">More tools</a></li>
+    </ul>
+  </nav>
+  <section class="footer-panel" id="panel-report" data-panel-body="report" data-state="closed" hidden aria-label="Report a problem">
+    <form class="report-form" novalidate>
+      <label for="bug-report">What happened? (required)</label>
+      <textarea id="bug-report" name="report" class="input" rows="4" maxlength="2000" required aria-describedby="bug-hint"></textarea>
+      <p class="small muted" id="bug-hint">Please don't paste account numbers or statement rows.</p>
+      <label for="bug-email">Your email (optional, only to reply)</label>
+      <input id="bug-email" name="email" class="input" type="email" maxlength="200" autocomplete="email">
+      <p class="small">We'll also send this page's address, your browser, and your purchase code if this browser has one. <button type="button" class="btn btn--link" data-action="see" aria-expanded="false" aria-controls="bug-see">See exactly what we send</button></p>
+      <pre class="report-form__see small" id="bug-see" data-role="see" hidden></pre>
+      <div class="report-form__turnstile" data-role="turnstile"></div>
+      <button type="submit" class="btn btn--primary btn--block">Send report</button>
+      <p class="report-form__result" data-role="result" aria-live="polite"></p>
+    </form>
+  </section>
+  <section class="footer-panel" id="panel-restore" data-panel-body="restore" data-state="closed" hidden aria-label="Restore purchase">
+    <form class="restore-form" novalidate>
+      <label for="restore-code">Purchase code</label>
+      <input id="restore-code" name="code" class="input input--mono" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="100">
+      <button type="submit" class="btn">Restore</button>
+      <p class="restore-form__result" data-role="result" aria-live="polite"></p>
+    </form>
+  </section>
+  <section class="footer-panel" id="panel-forget" data-panel-body="forget" data-state="closed" hidden aria-label="Forget my purchases">
+    <p data-role="prompt"></p>
+    <div class="footer-panel__actions">
+      <button type="button" class="btn" data-action="forget">Forget</button>
+      <button type="button" class="btn btn--quiet" data-action="keep">Keep</button>
+    </div>
+    <p data-role="result" role="status"></p>
+  </section>
+  <p class="small footer-disclosure">Automated extraction. Scanned pages and receipts are read by AI (Claude Haiku 5.5 by Anthropic; pages whose balance didn't add up are re-read by Claude Sonnet 5.5) and checked by arithmetic, not by a person. Text PDFs are read by code in your browser.</p>
+  <p class="small footer-contact">Contact: <a href="mailto:business@xirdie.com">business@xirdie.com</a></p>
+</footer>
+<script type="module" src="./js/footer.js"></script>
+<style>#studio-preview{position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#111;color:#fff;font:13px/1.4 system-ui,sans-serif;padding:8px 14px;text-align:center;opacity:.93}#studio-preview code{color:#9cf}</style>
+<div id="studio-preview">Preview build 1 - not public - purchases disabled. Notes: <code>studio.py feedback statements-and-receipts-to-spreadsheet "..."</code> &middot; approve: <code>studio.py approve statements-and-receipts-to-spreadsheet</code></div>
+</body>
+</html>

@@ -1,0 +1,1 @@
+Real output of this site for the harness text layout L01 (synthetic bank), built by site-build/make-sample.mjs; SHA256SUMS ties it to the source layout. The scanned sample (D4) stays absent until the vision run exists.

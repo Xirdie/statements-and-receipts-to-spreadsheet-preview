@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta name="robots" content="noindex, nofollow">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chase statement to Excel with a balance check</title>
+<meta name="description" content="Chase PDF statements to Excel or CSV: every row is carried forward to the ending balance, and you see the rows and the check free before paying $9. Not affiliated with JPMorgan Chase.">
+<link rel="canonical" href="https://tools.xirdie.com/statements-and-receipts-to-spreadsheet-preview/chase-statement-to-excel.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Sumline">
+<meta property="og:title" content="Chase statement to Excel with a balance check">
+<meta property="og:description" content="Chase PDF statements to Excel or CSV: every row is carried forward to the ending balance, and you see the rows and the check free before paying $9. Not affiliated with JPMorgan Chase.">
+<meta property="og:url" content="https://tools.xirdie.com/statements-and-receipts-to-spreadsheet-preview/chase-statement-to-excel.html">
+<meta property="og:image" content="https://tools.xirdie.com/statements-and-receipts-to-spreadsheet-preview/assets/og/chase-statement-to-excel.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Chase statement to Excel with a balance check">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14161a" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="./favicon.ico" sizes="32x32">
+<link rel="icon" href="./favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="stylesheet" href="./site.css">
+<script src="./config.js"></script>
+</head>
+<body data-page="tool" data-mode-default="st">
+<header class="site-header">
+  <a class="skip-link" href="#tool">Skip to the converter</a>
+  <a class="wordmark" href="./"><svg class="mark" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false"><path d="M8 4h9M11 8h6M6 12h11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 15.5h14M3 18h14" stroke="currentColor" stroke-width="1.5"/></svg><span class="wordmark__sum">Sum</span><span class="wordmark__line">line</span></a>
+</header>
+<main id="main">
+  <h1>Chase statement to Excel with a balance check</h1>
+  <section id="tool" class="tool" data-state="input" data-mode="st" aria-labelledby="tool-legend" tabindex="-1">
+  <noscript><p class="msg msg--error" data-error="E32">Sumline reads your files inside your browser, so it needs JavaScript turned on.</p></noscript>
+  <div class="phase phase--input" data-phase="input">
+    <fieldset class="doc-toggle">
+      <legend id="tool-legend">What are you converting?</legend>
+      <label class="pill"><input type="radio" name="doctype" value="st" checked><span>Statements</span></label>
+      <label class="pill"><input type="radio" name="doctype" value="rc"><span>Receipts</span></label>
+    </fieldset>
+    <div class="dropzone" id="dropzone" data-drag="off">
+      <input type="file" id="file-input" class="visually-hidden dropzone__input" multiple accept=".pdf,image/jpeg,image/png,image/webp,image/heic,image/heif">
+      <label for="file-input" class="dropzone__label">
+        <span class="dropzone__sentence only-wide" data-for="st">Drop statement PDFs here, or</span>
+        <span class="dropzone__sentence only-wide" data-for="rc" hidden>Drop receipt photos or PDFs here, or</span>
+        <span class="btn btn--primary dropzone__button only-wide">Choose files</span>
+        <span class="btn btn--primary dropzone__button only-narrow">Choose PDFs or photos</span>
+      </label>
+      <p class="dropzone__hint small muted">PDF, JPG, PNG, WebP or HEIC · up to 50 files · nothing is uploaded until you pay</p>
+    </div>
+    <p class="status-line small" id="read-status" aria-live="polite" data-state="idle"></p>
+    <p class="msg msg--note" id="photo-note" hidden>Photos are read as statement pages. Converting receipts? Switch to Receipts above.</p>
+    <div class="intake-alerts" id="intake-alerts" role="alert" hidden></div>
+    <ul class="file-list" id="file-list" hidden></ul>
+  </div>
+  <div class="phase phase--preview" data-phase="preview" id="preview" hidden>
+    <h2 id="preview-h" tabindex="-1">Your preview</h2>
+    <p class="small muted preview__note">Read by code in your browser. No AI was used for this preview.</p>
+    <div class="cards" id="cards"></div>
+    <div class="scans" id="scans" hidden>
+      <p class="scans__counts small" id="scan-counts"></p>
+      <ul class="thumb-grid" id="thumbs"></ul>
+    </div>
+    <div class="job-alerts" id="job-alerts"></div>
+    <div class="pricebox" id="pricebox"></div>
+    <div class="pay-panel" id="pay-panel" role="status" hidden></div>
+  </div>
+  <div class="phase phase--run" data-phase="run" id="run" hidden>
+    <h2 id="run-h" tabindex="-1"></h2>
+    <div class="run" id="run-body"></div>
+  </div>
+</section>
+  <p class="seo-answer">A Chase PDF downloaded from chase.com has a text layer, so your browser reads it here in about a second: every row must carry the balance forward to the ending balance, and you see the rows and the check free before paying $9 for the file. A scanned or photographed Chase statement goes through the AI reader with the same balance check. Drop several months and get one spreadsheet with a reconciliation line per statement. Not affiliated with JPMorgan Chase.</p>
+  <p class="subheadline">A spreadsheet that adds up. Drop PDF statements, text or scanned, or a batch of receipt photos. See the page count and the price before you pay. Get one Excel or CSV file with every row checked against the running balance. $9 a job. No account.</p>
+  <p class="price-chips"><span class="price-chip">$9 a job</span> <span class="price-chip">$19/month</span> <span class="price-chip">$29 for 250 pages</span></p>
+  <p class="anchor-line small">Typing up 60 pages by hand is about a $100 freelance job. This is $9, checked against the balance.</p>
+  <figure class="hero" data-slot="hero"><p class="visually-hidden">Opening balance 5,210.33, plus credits 11,654.41, minus debits 2,943.40, equals 13,921.34. The statement says 13,921.34. Reconciled.</p>
+  <div class="recon hero__recon" data-status="reconciled">
+    <dl class="recon__line" aria-hidden="true">
+      <div class="recon__term recon__term--opening"><dt>Opening</dt><dd>5,210.33</dd></div>
+      <div class="recon__term recon__term--plus"><dt>+ credits</dt><dd>11,654.41</dd></div>
+      <div class="recon__term recon__term--minus"><dt>− debits</dt><dd>2,943.40</dd></div>
+      <div class="recon__term recon__term--total"><dt>=</dt><dd>13,921.34</dd></div>
+      <div class="recon__term recon__term--printed"><dt>statement says</dt><dd>13,921.34</dd></div>
+    </dl>
+    <p class="recon__status"><span class="chip chip--reconciled" data-status="reconciled"><span class="chip__glyph" aria-hidden="true"></span><span class="chip__word">Reconciled</span></span></p>
+  </div>
+  <figcaption class="small muted">Example from our test statement</figcaption></figure>
+
+  <p class="sample-link"><a href="./sample/sumline-sample-text.xlsx" download>Download a sample spreadsheet (real output from our test text statement, a made-up bank)</a></p>
+  <figure class="demo">
+    <video class="demo__video" controls muted playsinline preload="none" width="720" height="450" data-poster="./assets/demo/sumline-flow-poster.webp">
+      <source src="./assets/demo/sumline-flow.webm" type="video/webm">
+      <source src="./assets/demo/sumline-flow.mp4" type="video/mp4">
+      <a href="./assets/demo/sumline-flow.gif">Screen recording: our test statement, drop to download. No sound.</a>
+    </video>
+    <figcaption class="small muted">Screen recording: our test statement, drop to download. No sound.</figcaption>
+  </figure>
+  <section class="benefits" aria-labelledby="benefits-h">
+    <h2 id="benefits-h">Why Sumline</h2>
+    <ul class="benefits__list">
+      <li class="benefit"><h3>Checked, not just converted.</h3><p>Every row is carried forward against the balance printed on your statement. A page that doesn't add up is re-read free by a stronger model, and anything still off is flagged in the file, never silently wrong.</p></li>
+      <li class="benefit"><h3>See it before you pay.</h3><p>Text PDFs are read in your browser and previewed right away with the balance check. Scanned pages are counted and priced exactly: $9 for one upload of up to 60 scanned pages, no subscription unless you want one.</p></li>
+      <li class="benefit"><h3>Your files stay in your tab.</h3><p>No account and no upload folder. Text PDFs that add up never leave your device; your files and page images are cleared when you download.</p></li>
+    </ul>
+  </section>
+  <section class="faq" aria-labelledby="faq-h">
+    <h2 id="faq-h">Questions</h2>
+    <details class="faq__item"><summary>Is it free?</summary><p>The preview is: text PDFs are read in your browser and checked against the balance at no cost, and scanned pages are counted and priced. The download is $9 per upload (up to 60 scanned pages), $19 a month for 150 pages, or $29 for 250 pages that never expire.</p></details>
+    <details class="faq__item"><summary>What if the numbers don't add up?</summary><p>The page that breaks the chain is re-read once by a stronger model at no charge. If it still doesn't add up, the rows are flagged in the file and you can ask for your money back.</p></details>
+    <details class="faq__item"><summary>Which pages count toward my limit?</summary><p>Scanned pages and receipt images. Text PDF pages don't: your browser reads them, and if one doesn't add up its text (never an image) is read by the AI at no page cost, up to 200 such pages per job.</p></details>
+    <details class="faq__item"><summary>What does &quot;unreconciled&quot; mean?</summary><p>Card statements and receipts have no running balance to check against. We check what can be checked (summary totals, subtotal + tax + tip) and label the rest honestly.</p></details>
+    <details class="faq__item"><summary>What happens to my statements?</summary><p>They stay in your browser tab. Scanned pages, and text pages that don't add up, are sent to Anthropic's AI to be read after you pay; Anthropic keeps API data for up to 30 days and then deletes it. This site keeps no copy. Full detail on the <a href="./privacy.html">Privacy page</a>.</p></details>
+    <details class="faq__item"><summary>Can I use the file for my taxes?</summary><p>It is a conversion, not tax or accounting advice. Check every figure against your statement before you rely on it. Receipt categories are suggestions. Statements from any bank with dates, descriptions and amounts work; US, UK, Indian and European number formats are read.</p></details>
+    <p class="small muted faq__restore">To use remaining pages on another device, paste the purchase code shown after checkout; monthly subscribers manage billing through &quot;Manage subscription&quot;.</p>
+  </section>
+</main>
+<footer class="site-footer">
+  <nav aria-label="Sumline">
+    <ul class="footer-links">
+      <li><button type="button" class="footer-link" data-panel="report" aria-expanded="false" aria-controls="panel-report">Report a problem</button></li>
+      <li><a class="footer-link" data-portal href="https://billing.stripe.com/p/login/00w5kCbck3583pQfGLb7y00" target="_blank" rel="noopener">Manage subscription<span class="visually-hidden"> (opens Stripe in a new tab)</span></a></li>
+      <li><button type="button" class="footer-link" data-panel="restore" aria-expanded="false" aria-controls="panel-restore">Restore purchase</button></li>
+      <li><button type="button" class="footer-link" data-panel="forget" aria-expanded="false" aria-controls="panel-forget">Forget my purchases</button></li>
+      <li><a class="footer-link" href="./privacy.html">Privacy</a></li>
+      <li><a class="footer-link" href="./terms.html">Terms</a></li>
+      <li><a class="footer-link" href="https://tools.xirdie.com/">More tools</a></li>
+    </ul>
+  </nav>
+  <section class="footer-panel" id="panel-report" data-panel-body="report" data-state="closed" hidden aria-label="Report a problem">
+    <form class="report-form" novalidate>
+      <label for="bug-report">What happened? (required)</label>
+      <textarea id="bug-report" name="report" class="input" rows="4" maxlength="2000" required aria-describedby="bug-hint"></textarea>
+      <p class="small muted" id="bug-hint">Please don't paste account numbers or statement rows.</p>
+      <label for="bug-email">Your email (optional, only to reply)</label>
+      <input id="bug-email" name="email" class="input" type="email" maxlength="200" autocomplete="email">
+      <p class="small">We'll also send this page's address, your browser, and your purchase code if this browser has one. <button type="button" class="btn btn--link" data-action="see" aria-expanded="false" aria-controls="bug-see">See exactly what we send</button></p>
+      <pre class="report-form__see small" id="bug-see" data-role="see" hidden></pre>
+      <div class="report-form__turnstile" data-role="turnstile"></div>
+      <button type="submit" class="btn btn--primary btn--block">Send report</button>
+      <p class="report-form__result" data-role="result" aria-live="polite"></p>
+    </form>
+  </section>
+  <section class="footer-panel" id="panel-restore" data-panel-body="restore" data-state="closed" hidden aria-label="Restore purchase">
+    <form class="restore-form" novalidate>
+      <label for="restore-code">Purchase code</label>
+      <input id="restore-code" name="code" class="input input--mono" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="100">
+      <button type="submit" class="btn">Restore</button>
+      <p class="restore-form__result" data-role="result" aria-live="polite"></p>
+    </form>
+  </section>
+  <section class="footer-panel" id="panel-forget" data-panel-body="forget" data-state="closed" hidden aria-label="Forget my purchases">
+    <p data-role="prompt"></p>
+    <div class="footer-panel__actions">
+      <button type="button" class="btn" data-action="forget">Forget</button>
+      <button type="button" class="btn btn--quiet" data-action="keep">Keep</button>
+    </div>
+    <p data-role="result" role="status"></p>
+  </section>
+  <p class="small footer-disclosure">Automated extraction. Scanned pages and receipts are read by AI (Claude Haiku 5.5 by Anthropic; pages whose balance didn't add up are re-read by Claude Sonnet 5.5) and checked by arithmetic, not by a person. Text PDFs are read by code in your browser.</p>
+  <p class="small footer-contact">Contact: <a href="mailto:business@xirdie.com">business@xirdie.com</a></p>
+</footer>
+<script src="./assets/motion.js"></script>
+<script type="module" src="./js/app.js"></script>
+<style>#studio-preview{position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#111;color:#fff;font:13px/1.4 system-ui,sans-serif;padding:8px 14px;text-align:center;opacity:.93}#studio-preview code{color:#9cf}</style>
+<div id="studio-preview">Preview build 1 - not public - purchases disabled. Notes: <code>studio.py feedback statements-and-receipts-to-spreadsheet "..."</code> &middot; approve: <code>studio.py approve statements-and-receipts-to-spreadsheet</code></div>
+</body>
+</html>
