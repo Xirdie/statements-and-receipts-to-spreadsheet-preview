@@ -9,17 +9,19 @@ const GAP_MS = 5000;
 let lastEnd = 0;
 
 // getPart(i) -> Promise<{field: 'p<i>' | 't<i>', value: string}> (built on demand, dropped once sent)
-// onResult(i, {out, truncated}); onNotRead(i, reason); onWait(seconds); onProgress()
+// onResult(i, {out, truncated}); onNotRead(i, reason, detail); onWait(seconds); onProgress()
+// detail (R2): the Worker's provider reason, sent on owner tickets only; the last one seen per page
 // -> {stop: null | 'ticket' | 'job', remaining: [indices not finished]}
 export async function sendPages({ ticket, indices, batch, getPart, onResult, onNotRead, onWait, onProgress }) {
   const queue = indices.slice();
   const tries = new Map();
   const built = new Map();
+  const detail = new Map();
   const fail = (i, reason, retryable) => {
     const n = (tries.get(i) || 0) + 1;
     tries.set(i, n);
     if (retryable && n < 3) { queue.push(i); return PAGE_RETRY_MS[n - 1]; } // 3 attempts per page (integrations.md)
-    onNotRead(i, reason);
+    onNotRead(i, reason, detail.get(i) || null);
     return 0;
   };
 
@@ -70,10 +72,11 @@ export async function sendPages({ ticket, indices, batch, getPart, onResult, onN
         const i = Number(pg.i);
         if (!sent.includes(i) || seen.has(i)) continue;
         seen.add(i);
+        if (pg.detail) detail.set(i, String(pg.detail).slice(0, 240)); else detail.delete(i);
         if (!pg.error) { onResult(i, { out: pg.out, truncated: !!pg.truncated, dry: !!pg.dry, owner: !!pg.owner }); continue; }
         if (pg.error === 'rate') { rateWait = Math.max(rateWait, Number(pg.retry_after) || DEFAULT_RETRY_AFTER_S); fail(i, 'rate', true); continue; }
         if (pg.error === 'provider') { delay = Math.max(delay, fail(i, 'provider', true)); continue; }
-        onNotRead(i, pg.error); // declined, done
+        onNotRead(i, pg.error, detail.get(i) || null); // invalid, declined, done
       }
       sent.forEach((i) => { if (!seen.has(i)) delay = Math.max(delay, fail(i, 'provider', true)); });
       if (rateWait) { onWait(rateWait); delay = Math.max(delay, rateWait * 1000); }

@@ -94,6 +94,7 @@ function summaryAoa(job, info) {
   if (job.summary.notReadPages.length) {
     aoa.push([]);
     aoa.push([T.incomplete(job.summary.notReadPages.length)]);
+    (info.notReadLines || []).forEach((l) => aoa.push([l])); // R2: owner test only
   }
   return aoa;
 }

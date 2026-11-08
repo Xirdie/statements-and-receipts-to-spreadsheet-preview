@@ -179,12 +179,13 @@ function rowsTable(rows, caption, opts = {}) {
     }
     tb.append(tr);
     if (flagged && opts.full && opts.reason) tb.append(h('tr', { class: 'row--reason' }, h('td', { colspan: String(head.length) }, opts.reason(r))));
+    if (notRead && opts.detail) tb.append(h('tr', { class: 'row--reason row--detail' }, h('td', { colspan: String(head.length) }, opts.detail(r))));
   }
   return h('div', { class: 'table-wrap', tabindex: '0', role: 'region', 'aria-label': caption },
     h('table', { class: 'rows' }, h('caption', { class: 'visually-hidden' }, caption), h('thead', {}, h('tr', {}, head.map(th))), tb));
 }
 
-function rcRowsTable(rows, caption) {
+function rcRowsTable(rows, caption, detail = null) {
   const head = ['file', 'image', 'date', 'vendor', 'tax', 'total', 'currency', 'category', 'check'];
   const tb = h('tbody');
   let lastFile = null;
@@ -201,6 +202,7 @@ function rcRowsTable(rows, caption) {
       tr.append(cell);
     }
     tb.append(tr);
+    if (r.notRead && detail) tb.append(h('tr', { class: 'row--reason row--detail' }, h('td', { colspan: String(head.length) }, detail(r))));
   }
   return h('div', { class: 'table-wrap', tabindex: '0', role: 'region', 'aria-label': caption },
     h('table', { class: 'rows rows--receipts' }, h('caption', { class: 'visually-hidden' }, caption),
@@ -657,7 +659,7 @@ async function send(indices, ticket, model) {
     batch: model === 's' ? Math.min(L.SONNET_BATCH, S.status.batch) : S.status.batch,
     getPart,
     onResult: (i, out) => { E.applyResult(S.job, i, out, model); R.models.add(model); if (out.dry && !R.dry && S.R1) { R.dry = true; els.runBody.prepend(S.R1.banner('dry', S.job.mode)); } if (model === 'h') { R.done++; pageRowsPreview(i); } },
-    onNotRead: (i) => { E.markNotRead(S.job, i); if (model === 'h') R.done++; },
+    onNotRead: (i, why, detail) => { E.markNotRead(S.job, i, R.kind === 'owner' ? detail : null); if (model === 'h') R.done++; },
     onWait: (s) => sayProgress(T.E25(s), true),
     onProgress: () => { R.ui.progress.value = String(R.done); R.ui.progress.setAttribute('aria-valuetext', progressText()); sayProgress(progressText()); },
   });
@@ -730,7 +732,7 @@ function done(gaveUp) {
   lockInput(false);
   const isOwner = R.kind === 'owner';
   const isDry = !isOwner && !!S.R1 && runIsDry(job);
-  S.rows = E.outputRows(job, { owner: isOwner ? S.R1.R.noteOwner() : '', dry: isDry ? S.R1.R.noteDry() : '' });
+  S.rows = E.outputRows(job, { owner: isOwner ? S.R1.R.noteOwner() : '', dry: isDry ? S.R1.R.noteDry() : '', notRead: isOwner ? S.R1.R.noteNotRead : null });
   S.downloaded = false;
   els.runH.textContent = isOwner ? S.R1.R.doneH2Owner() : isDry ? S.R1.R.doneH2Dry() : T.doneH2();
   clear(els.runBody);
@@ -756,7 +758,13 @@ function done(gaveUp) {
   }
   if (sum.notReadPages.length) {
     out.append(h('p', { class: 'msg msg--notread run__incomplete' }, T.incomplete(sum.notReadPages.length)));
-    if (gaveUp || R.finishTried) {
+    if (isOwner && finishedPages(job) === 0) {
+      // R2: E37 replaces E27 on an owner test where every page failed; the retry button stays
+      const ds = S.rows.filter((r) => r.notRead).map((r) => r.detail || S.R1.R.noteNotRead(null));
+      const uniq = [...new Set(ds)];
+      out.append(h('div', { class: 'msg msg--error', role: 'alert', dataset: { error: 'E37' } }, h('p', {}, uniq.length <= 1 ? S.R1.R.E37same(uniq[0] || S.R1.R.noteNotRead(null)) : S.R1.R.E37diff(ds[0], uniq.length)),
+        h('div', { class: 'msg__actions' }, btn(T.finish(), finishRemaining, 'btn btn--primary'), reportLink())));
+    } else if (gaveUp || R.finishTried) {
       const fin = finishedPages(job);
       out.append(h('div', { class: 'msg msg--error', role: 'alert', dataset: { error: 'E27' } }, h('p', {}, fin > 0 ? T.E27(R.sid, fin) : T.E27none(R.sid)),
         h('div', { class: 'msg__actions' }, fin > 0 ? btn(T.downloadFinished(fin), () => $('#download-btn').focus()) : null, reportLink())));
@@ -769,7 +777,13 @@ function done(gaveUp) {
   const flagged = job.mode === 'st' ? sum.flaggedRows : sum.flaggedReceipts;
   if (flagged && !isOwner && !isDry) out.append(h('p', { class: 'run__refund' }, T.refundLead(), ' ', h('a', { href: refundMailto(R.sid, job, flagged) }, T.refundLink())));
   // the table, flagged rows highlighted
-  out.append(job.mode === 'rc' ? rcRowsTable(S.rows, T.resultCaption()) : rowsTable(S.rows, T.resultCaption(), { full: true, reason: reasonOf }));
+  const notReadRows = isOwner ? S.rows.filter((r) => r.notRead) : [];
+  if (notReadRows.length) {
+    out.append(h('div', { class: 'notread-list' }, h('h3', {}, S.R1.R.notReadListHead()),
+      h('ul', {}, notReadRows.map((r) => h('li', {}, S.R1.R.notReadItem(r.file, r.page !== undefined ? r.page : r.image, r.detail))))));
+  }
+  const ownerDetail = isOwner ? (r) => (r.detail ? S.R1.R.notReadDetail(r.detail) : S.R1.R.notReadNoReply()) : null;
+  out.append(job.mode === 'rc' ? rcRowsTable(S.rows, T.resultCaption(), ownerDetail) : rowsTable(S.rows, T.resultCaption(), { full: true, reason: reasonOf, detail: ownerDetail }));
   // the disclosure block directly above the format picker and Download (S1)
   const browserOnly = job.n === 0 && job.t === 0;
   out.append(h('div', { class: 'disclosure', id: 'disclosure' },
@@ -849,7 +863,7 @@ async function download(fmt) {
   };
   const isOwner = R && R.kind === 'owner';
   const isDry = !isOwner && !!S.R1 && runIsDry(job);
-  if (isOwner) Object.assign(info, { tagLine: S.R1.R.sumOwner() });
+  if (isOwner) Object.assign(info, { tagLine: S.R1.R.sumOwner(), notReadLines: S.rows.filter((r) => r.notRead).map((r) => S.R1.R.sumNotRead(r.file, r.page !== undefined ? r.page : r.image, r.detail)) });
   if (isDry) Object.assign(info, { tagLine: S.R1.R.sumDry(), sheetPrefix: 'DRY RUN ' });
   let blob, saveName, save;
   try {

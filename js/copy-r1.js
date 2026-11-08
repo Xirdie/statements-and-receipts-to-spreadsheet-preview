@@ -42,4 +42,14 @@ export const R = {
   noteDry: () => 'DRY RUN example row, not from your file',
   dryCheck: () => 'DRY RUN',
   contact: () => CONTACT,
+
+  // R2 change 3 (revisions/round-2.md): the provider's reason on an owner test only
+  notReadDetail: (d) => `NOT READ — provider said: ${d}`,
+  notReadNoReply: () => 'NOT READ — no reply from the provider (network or timeout).',
+  notReadListHead: () => 'Pages not read (owner test)',
+  notReadItem: (file, page, d) => `${file}, page ${page}: ${d ? `provider said: ${d}` : 'no reply from the provider (network or timeout)'}`,
+  noteNotRead: (d) => (d ? `provider said: ${d}` : 'no reply from the provider (network or timeout)'),
+  sumNotRead: (file, page, d) => `${file} page ${page}: ${d ? `provider said: ${d}` : 'no reply from the provider (network or timeout)'}`,
+  E37same: (d) => `Owner test: every page failed — provider said: ${d}. Press Finish the remaining pages to try again; if the same error comes back, the request needs fixing, not your files.`,
+  E37diff: (d, n) => `Owner test: every page failed — first error: ${d} (${n} different errors; each page shows its own). Press Finish the remaining pages to try again.`,
 };

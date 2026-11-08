@@ -374,3 +374,10 @@ label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
 .run-banner p { margin: 0 0 .25rem; }
 .run-banner p:last-child { margin: 0; }
 .recon__dry { margin: 6px 0 0; }
+
+/* R2: an owner test's NOT READ reasons: a row under the NOT READ row at >= 600 px, a list above the table below */
+.row--detail td { background: var(--c-notread-bg); color: var(--c-notread-fg); white-space: normal; overflow-wrap: anywhere; }
+.notread-list { display: none; margin: 8px 0; padding: 10px 12px; background: var(--c-notread-bg); color: var(--c-notread-fg); border-left: 4px dashed var(--c-notread-rule); border-radius: var(--r-control); }
+.notread-list h3 { font-size: 1rem; margin: 0 0 .25rem; color: inherit; }
+.notread-list ul { margin: 0; padding-left: 1.2rem; font-size: 1rem; white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 599px) { .notread-list { display: block; } }
