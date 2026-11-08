@@ -149,6 +149,7 @@ export function applyResult(job, i, res, model) {
   const target = e.unit.type === 'rc' ? e.unit : e.page;
   const out = res && res.out;
   target.notRead = false;
+  target.dry = !!(res && res.dry); // R1 3b: the Worker's own word, never a guess
   if (model === 's') target.reread = true;
   if (e.unit.type === 'rc') { target.out = out && typeof out === 'object' ? out : null; target.truncated = !!res.truncated; return; }
   const ok = out && typeof out === 'object' && Array.isArray(out.rows);
@@ -218,12 +219,20 @@ export function finalise(job) {
 }
 
 // Output rows (the CSV/XLSX Transactions sheet and the on-page table), in file and page order.
-export function outputRows(job) {
+// labels (R1): {owner: 'owner test'} adds the note to every row; {dry: '…'} to every row read from a dry page
+export function outputRows(job, labels = {}) {
+  const rows = rawRows(job);
+  if (labels.owner) rows.forEach((r) => { r.note = r.note ? `${labels.owner}; ${r.note}` : labels.owner; });
+  if (labels.dry) rows.forEach((r) => { if (r.dry) r.note = r.note ? `${labels.dry}; ${r.note}` : labels.dry; });
+  return rows;
+}
+
+function rawRows(job) {
   const rows = [];
   for (const u of job.units) {
     if (u.type === 'rc') {
       if (u.notRead) { rows.push({ file: u.name, image: u.page, check: CHECK_NOT_READ }); continue; }
-      rows.push({ file: u.name, image: u.page, ...(u.row || {}), check: u.check ? u.check.check : 'unreconciled', note: u.check ? u.check.note : '' });
+      rows.push({ file: u.name, image: u.page, ...(u.row || {}), check: u.check ? u.check.check : 'unreconciled', note: u.check ? u.check.note : '', dry: !!u.dry });
       continue;
     }
     const checks = (u.result && u.result.rows) || [];
@@ -235,7 +244,7 @@ export function outputRows(job) {
       for (const r of p.rows) {
         const c = checks[k++] || { check: 'unreconciled' };
         const amt = Number(r.amount) || 0;
-        pageRows.push({ file: u.name, page: p.page, date: r.date, description: r.desc, debit: amt < 0 ? -amt : null, credit: amt > 0 ? amt : null, amount: amt, balance: r.balance ?? null, check: c.check, note: '' });
+        pageRows.push({ file: u.name, page: p.page, date: r.date, description: r.desc, debit: amt < 0 ? -amt : null, credit: amt > 0 ? amt : null, amount: amt, balance: r.balance ?? null, check: c.check, note: '', dry: !!p.dry });
       }
       if (p.tooLong || p.overAllowance) {
         const label = p.tooLong ? CHECK_TOO_LONG : 'FLAGGED: over the AI re-read allowance';

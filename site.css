@@ -359,3 +359,18 @@ label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
 .demo { margin: 20px 0; }
 .demo__video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; background: var(--c-surface-2); border: 1px solid var(--c-border); border-radius: var(--r-card); }
 .demo figcaption { margin-top: 8px; }
+
+/* R1: reviewer line + code field (3a), OWNER TEST / DRY RUN banners (1a, 3b). Static by rule:
+   no animation, never sticky, text not colour alone. */
+.reviewer { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--c-control); border-radius: var(--r-control); background: var(--c-surface-2); }
+.reviewer p { margin: 0 0 .5rem; }
+.reviewer__code { white-space: nowrap; font-family: var(--mono); }
+.reviewer__form label { margin-top: .5rem; }
+.reviewer__use { min-height: 48px; margin-top: 8px; }
+.reviewer__result { margin: 8px 0 0; }
+.reviewer__result[data-state="error"] { border-left: 4px solid var(--c-error); padding-left: 8px; }
+.pricebox__resume { margin-top: 8px; }
+.run-banner { border: 2px solid var(--c-text); border-radius: var(--r-control); background: var(--c-surface-2); padding: 12px 14px; margin: 0 0 12px; animation: none !important; }
+.run-banner p { margin: 0 0 .25rem; }
+.run-banner p:last-child { margin: 0; }
+.recon__dry { margin: 6px 0 0; }

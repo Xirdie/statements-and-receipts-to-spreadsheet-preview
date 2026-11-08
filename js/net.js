@@ -14,6 +14,9 @@ export function cfg() {
   };
 }
 
+// Page-wide facts other modules read (footer.js: the Restore label and the owner-code gate).
+export const runtime = { status: null };
+
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // -> { ok, status, data, retryAfter, network }   (status 0 + network:true = unreachable/timeout)
@@ -44,7 +47,7 @@ export async function verify(body, { retries = [1000, 3000, 9000], timeout = 150
   let r;
   for (let a = 0; a <= retries.length; a++) {
     r = await call('/verify', { method: 'POST', json: body, timeout });
-    const transient = r.network || r.status >= 500;
+    const transient = r.network || (r.status >= 500 && !(r.data && r.data.error === 'misconfigured'));
     if (!transient) return r;
     if (a < retries.length) await sleep(retries[a]);
   }

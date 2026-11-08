@@ -70,7 +70,7 @@ export async function sendPages({ ticket, indices, batch, getPart, onResult, onN
         const i = Number(pg.i);
         if (!sent.includes(i) || seen.has(i)) continue;
         seen.add(i);
-        if (!pg.error) { onResult(i, { out: pg.out, truncated: !!pg.truncated }); continue; }
+        if (!pg.error) { onResult(i, { out: pg.out, truncated: !!pg.truncated, dry: !!pg.dry, owner: !!pg.owner }); continue; }
         if (pg.error === 'rate') { rateWait = Math.max(rateWait, Number(pg.retry_after) || DEFAULT_RETRY_AFTER_S); fail(i, 'rate', true); continue; }
         if (pg.error === 'provider') { delay = Math.max(delay, fail(i, 'provider', true)); continue; }
         onNotRead(i, pg.error); // declined, done

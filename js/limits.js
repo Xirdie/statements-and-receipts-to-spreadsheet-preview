@@ -54,3 +54,9 @@ export const KIND_OF_LINK = { one_off: 'one', pack: 'pack', monthly: 'plan' };
 export const LINK_OF_KIND = { one: 'one_off', pack: 'pack', plan: 'monthly' };
 
 export const MODELS = { haiku: 'Claude Haiku 5.5', sonnet: 'Claude Sonnet 5.5' };
+
+// R1 owner test path (plan.md § Owner test path): a 12-character Crockford base32 code, typed as
+// XXXX-XXXX-XXXX (hyphens, spaces and case ignored). PREVIEW-ONLY (CTO R1 ruling): the page accepts
+// it only when /status.owner is true, which the shipped Worker never reports; no URL entry exists.
+export const normaliseOwner = (s) => String(s || '').toUpperCase().replace(/[\s-]+/g, '');
+export const isOwnerCode = (s) => /^[0-9A-HJKMNP-TV-Z]{12}$/.test(normaliseOwner(s));

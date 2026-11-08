@@ -68,8 +68,9 @@ const money = (c) => (c === null || c === undefined ? '' : Number((c / 100).toFi
 
 // summary: {units, mode, models: [..], runDate, browserOnly, notReadPages}
 function summaryAoa(job, info) {
+  // row 1 opens with the disclaimer (D14); an owner test or dry run adds its label beside it (R1)
   const aoa = [
-    [T.disclosureLabel()],
+    info.tagLine ? [T.disclosureLabel(), info.tagLine] : [T.disclosureLabel()],
     [info.browserOnly ? T.browserOnly() : T.aiDisclosure()],
     [T.sumAutomated()],
     [T.sumModels(info.models.join(', ') || '-')],
@@ -104,15 +105,15 @@ export async function buildXlsx(job, rows, info) {
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(data);
   ws['!cols'] = cols.map((c) => ({ wch: c === 'description' || c === 'vendor' ? 40 : c === '#check' ? 34 : c === 'file' ? 22 : 12 }));
-  XLSX.utils.book_append_sheet(wb, ws, job.mode === 'rc' ? 'Receipts' : 'Transactions');
+  XLSX.utils.book_append_sheet(wb, ws, (info.sheetPrefix || '') + (job.mode === 'rc' ? 'Receipts' : 'Transactions'));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryAoa(job, info)), 'Summary');
   const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array', compression: true });
   return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
-export function fileName(ext, d = new Date()) {
+export function fileName(ext, d = new Date(), tag = '') {
   const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  return `sumline-${iso}.${ext}`;
+  return `sumline-${tag ? tag + '-' : ''}${iso}.${ext}`;
 }
 
 // Hands the file to the browser, then revokes the object URL.

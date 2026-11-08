@@ -2,9 +2,9 @@
 // my purchases · Privacy · Terms · More tools. Panels expand in place (never a modal, never open
 // on load), focus their first field, and Escape closes them and returns focus to the link.
 import { T } from './copy.js';
-import { cfg } from './net.js';
+import { cfg, runtime } from './net.js';
 import { $, $$ } from './ui.js';
-import { isSessionId } from './limits.js';
+import { isSessionId, isOwnerCode, normaliseOwner } from './limits.js';
 import { purchases, api } from './checkout.js';
 
 let openBtn = null;
@@ -45,33 +45,51 @@ function fmtReset(iso) {
 }
 export { fmtReset };
 
+// One handler for every code field (the footer Restore panel and, R1, the reviewer field in the
+// price box): a purchase code is confirmed and stored; on a preview whose /status says owner: true
+// a 12-character owner code is handed to app.js in memory (never stored; preview-only, CTO R1).
+// -> {text, kind: 'ok' | 'error'}
+export async function applyCode(raw) {
+  const sid = String(raw || '').trim();
+  const st = runtime.status || {};
+  if (st.owner && !isSessionId(sid) && isOwnerCode(sid)) {
+    window.dispatchEvent(new CustomEvent('sumline:owner', { detail: { code: normaliseOwner(sid) } }));
+    const { R } = await import('./copy-r1.js');
+    return { text: R.ownerEntered(), kind: 'ok' };
+  }
+  if (!isSessionId(sid)) return { text: T.E29(), kind: 'error' };
+  const r = await api.confirm(sid);
+  if (r.ok && r.data) {
+    const d = r.data;
+    purchases.add({ sid, kind: d.kind, restored: true });
+    window.dispatchEvent(new CustomEvent('sumline:purchases'));
+    return { text: d.kind === 'plan' ? T.restoredPlan(d.left, fmtReset(d.reset)) : d.kind === 'pack' ? T.restoredPack(d.left) : T.restoredOne(d.left > 0), kind: 'ok' };
+  }
+  const code = r.data && r.data.error;
+  if (r.status === 400) return { text: T.E29(), kind: 'error' };
+  if (r.status === 403 && code === 'inactive') return { text: T.E20(), kind: 'error' };
+  if (r.status === 403) return { text: T.E17(), kind: 'error' };
+  if (r.status === 429) return { text: T.E24(), kind: 'error' };
+  return { text: T.E16restore(), kind: 'error' };
+}
+
 function initRestore(root) {
   const form = root.querySelector('form');
   const input = root.querySelector('[name="code"]');
+  const label = root.querySelector('label');
   const out = root.querySelector('[data-role="result"]');
   const say = (t, kind) => { out.textContent = t; out.dataset.state = kind; out.setAttribute('role', kind === 'error' ? 'alert' : 'status'); };
+  // R1: "Purchase or test code" only on a dry or owner preview
+  const relabel = () => { const st = runtime.status || {}; label.textContent = st.mode === 'dry' || st.owner ? T.restoreLabelTest() : T.restoreLabel(); };
+  window.addEventListener('sumline:status', relabel);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const sid = input.value.trim();
-    if (!isSessionId(sid)) { say(T.E29(), 'error'); return; }
     const btn = form.querySelector('[type="submit"]');
     btn.disabled = true;
-    const r = await api.confirm(sid);
+    const m = await applyCode(input.value);
     btn.disabled = false;
-    if (r.ok && r.data) {
-      purchases.add({ sid, kind: r.data.kind });
-      const d = r.data;
-      say(d.kind === 'plan' ? T.restoredPlan(d.left, fmtReset(d.reset)) : d.kind === 'pack' ? T.restoredPack(d.left) : T.restoredOne(d.left > 0), 'ok');
-      input.value = '';
-      window.dispatchEvent(new CustomEvent('sumline:purchases'));
-      return;
-    }
-    const code = r.data && r.data.error;
-    if (r.status === 400) say(T.E29(), 'error');
-    else if (r.status === 403 && code === 'inactive') say(T.E20(), 'error');
-    else if (r.status === 403) say(T.E17(), 'error');
-    else if (r.status === 429) say(T.E24(), 'error');
-    else say(T.E16restore(), 'error');
+    say(m.text, m.kind);
+    if (m.kind === 'ok') input.value = '';
   });
 }
 

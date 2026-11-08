@@ -5,19 +5,27 @@
 // .row--notread / .pay-panel / .disclosure class names; no animation lives here.
 import { T } from './copy.js';
 import * as L from './limits.js';
-import { cfg, call, sleep } from './net.js';
+import { cfg, call, sleep, runtime } from './net.js';
 import { $, h, clear, show, focusHeading, reducedMotion } from './ui.js';
 import { captureUtm, goal, loadBeacon } from './analytics.js';
-import { prefetchPdfjs } from './pdf-text.js';
-import { createIntake, jobHash } from './input.js';
-import { buildJob, partOf, applyResult, markNotRead, finalise, outputRows, loadParser } from './job.js';
-import { rasterise, toBase64 } from './raster.js';
-import { fmtCents } from './reconcile.js';
+// The file engine (input, pdf.js glue, raster, job model, reconcile.js) loads on the first file
+// or on idle, never in the first view (V5). E holds its exports once loaded.
+let E = null;
+let engineP = null;
+function engine() {
+  if (!engineP) {
+    engineP = Promise.all([import('./input.js'), import('./job.js'), import('./raster.js'), import('./reconcile.js'), import('./pdf-text.js')])
+      .then(([inp, job, raster, rec, pdf]) => { E = { ...inp, ...job, ...raster, fmtCents: rec.fmtCents, prefetchPdfjs: pdf.prefetchPdfjs }; return E; });
+    engineP.catch(() => { engineP = null; });
+  }
+  return engineP;
+}
+const fmtCents = (c) => E.fmtCents(c);
 // loaded when a paid job starts / on Download (keeps them out of the first view, V5)
 const lazyBatcher = () => import('./batcher.js');
 const lazyOutput = () => import('./output.js');
 import { purchases, onChannel, post, openCheckout, linkFor, api } from './checkout.js';
-import { initFooter, kindWord, fmtReset, openReport } from './footer.js';
+import { initFooter, kindWord, fmtReset, openReport, applyCode } from './footer.js';
 
 const body = document.body;
 const PAGE = body.dataset.page; // 'tool' | 'paid'
@@ -28,7 +36,9 @@ const S = {
   status: { state: 'unknown', batch: L.MAX_BATCH_DEFAULT, mode: 'live' },
   job: null, version: 0, building: false,
   selected: null, touched: false, packShown: false, buyOther: false,
-  owned: null, ownedLoading: false,
+  owned: null, ownedLoading: false, ownedGen: 0,
+  owner: { code: null, at: 0, left: null, cap: null, reset: null, locked: false, msg: null }, // R1: in memory only
+  R1: null, reviewerMsg: null, // owner.js once /status says dry or owner
   pending: null, // {kind, at} after a checkout click in this tab
   hiddenSince: false,
   paid: null,    // paid.html: {sid, kind, cap, left, reset}
@@ -48,21 +58,26 @@ const setState = (s) => { if (tool) tool.dataset.state = s; };
 const stateIs = (...s) => tool && s.includes(tool.dataset.state);
 
 // ---------------------------------------------------------------- intake
-const intake = tool ? createIntake({
+let intake = null;
+const intakeOpts = () => ({
   listEl: els.list, statusEl: els.status, alertEl: els.alerts,
   onChange: () => scheduleBuild(),
   onPhoto: () => { if (S.mode === 'st') show(els.photo, true); },
-}) : null;
+});
+async function ensureIntake() {
+  if (!intake) { await engine(); intake = intake || E.createIntake(intakeOpts()); }
+  return intake;
+}
 
 function wireInput() {
-  els.file.addEventListener('change', () => { if (els.file.files.length) intake.add(els.file.files); els.file.value = ''; });
+  els.file.addEventListener('change', async () => { const fl = [...els.file.files]; els.file.value = ''; if (fl.length) (await ensureIntake()).add(fl); });
   const zone = els.drop;
   const on = (e) => { e.preventDefault(); zone.dataset.drag = 'on'; };
   const off = () => { zone.dataset.drag = 'off'; };
   zone.addEventListener('dragenter', on);
   zone.addEventListener('dragover', on);
   zone.addEventListener('dragleave', off);
-  zone.addEventListener('drop', (e) => { e.preventDefault(); off(); if (!stateIs('input', 'preview')) return; if (e.dataTransfer && e.dataTransfer.files.length) intake.add(e.dataTransfer.files); });
+  zone.addEventListener('drop', (e) => { e.preventDefault(); off(); if (!stateIs('input', 'preview')) return; if (e.dataTransfer && e.dataTransfer.files.length) { const fl = [...e.dataTransfer.files]; ensureIntake().then((x) => x.add(fl)); } });
   for (const r of tool.querySelectorAll('input[name="doctype"]')) {
     r.checked = r.value === S.mode;
     r.addEventListener('change', () => { if (!r.checked) return; setMode(r.value); });
@@ -97,7 +112,7 @@ async function rebuild() {
   if (intake.busy) { setState(ready.length || intake.files.length ? 'reading' : 'input'); renderPreview(); return; }
   if (!ready.length) { S.job = null; setState('input'); renderPreview(); return; }
   S.building = true;
-  const job = await buildJob(S.mode, ready);
+  const job = await E.buildJob(S.mode, ready);
   if (v !== S.version) return;
   S.building = false;
   const first = !S.job;
@@ -111,22 +126,25 @@ async function rebuild() {
 }
 
 function chip(status, n) {
+  if (status === 'dry' && S.R1) return h('span', { class: 'chip chip--unreconciled chip--dry', dataset: { status } }, h('span', { class: 'chip__glyph', 'aria-hidden': 'true' }), h('span', { class: 'chip__word' }, S.R1.R.chipDry()));
   const word = status === 'reconciled' ? T.chipReconciled() : status === 'flagged' ? T.chipFlagged(n) : T.chipUnreconciled();
   return h('span', { class: `chip chip--${status}`, dataset: { status } }, h('span', { class: 'chip__glyph', 'aria-hidden': 'true' }), h('span', { class: 'chip__word' }, word));
 }
 
 // S7: the reconciliation line for one statement result.
-function reconBlock(res) {
+// dry: the statement holds DRY RUN rows -> "DRY RUN" chip instead of Reconciled / Flagged (R1 3b)
+function reconBlock(res, dry = false) {
   if (!res) return h('p', { class: 'recon recon--empty small muted' }, T.lineNoBalance());
+  const dryNote = dry ? h('p', { class: 'recon__dry small' }, S.R1.R.dryLineNote()) : null;
   if (res.status === 'unreconciled') {
     const c = (res.checks || []).find((x) => x.name === 'charges' || x.name === 'debits');
     const text = c ? T.lineCard(fmtCents(c.rows), fmtCents(c.printed), c.ok, fmtCents(Math.abs(c.rows - c.printed)), c.name) : T.lineNoBalance();
-    return h('div', { class: 'recon recon--text', dataset: { status: 'unreconciled', failed: res.failed ? 'yes' : 'no' } }, h('p', {}, text), h('p', { class: 'recon__status' }, chip('unreconciled')));
+    return h('div', { class: 'recon recon--text', dataset: { status: dry ? 'dry' : 'unreconciled', failed: res.failed ? 'yes' : 'no' } }, h('p', {}, text), h('p', { class: 'recon__status' }, chip(dry ? 'dry' : 'unreconciled')), dryNote);
   }
   const l = res.line;
   const off = l.diff ? fmtCents(Math.abs(l.diff)) : '';
   const term = (cls, label, val) => h('div', { class: `recon__term ${cls}` }, h('dt', {}, label), h('dd', {}, val));
-  return h('div', { class: 'recon', dataset: { status: res.status } },
+  return h('div', { class: 'recon', dataset: { status: dry ? 'dry' : res.status } },
     h('p', { class: 'visually-hidden' }, T.srLine(fmtCents(l.opening), fmtCents(l.credits), fmtCents(l.debits), fmtCents(l.computed), l.printed === null ? '' : fmtCents(l.printed), res.status, off)),
     h('dl', { class: 'recon__line', 'aria-hidden': 'true' },
       term('recon__term--opening', T.lnOpening(), fmtCents(l.opening)),
@@ -134,7 +152,7 @@ function reconBlock(res) {
       term('recon__term--minus', T.lnDebits(), fmtCents(l.debits)),
       term('recon__term--total', T.lnComputed(), fmtCents(l.computed)),
       term('recon__term--printed', T.lnPrinted(), l.printed === null ? T.lnNotPrinted() : fmtCents(l.printed))),
-    h('p', { class: 'recon__status' }, chip(res.status, res.flaggedRows), off ? h('span', { class: 'recon__off' }, T.lnOffBy(off)) : null));
+    h('p', { class: 'recon__status' }, chip(dry ? 'dry' : res.status, res.flaggedRows), off && !dry ? h('span', { class: 'recon__off' }, T.lnOffBy(off)) : null), dryNote);
 }
 
 function rowsTable(rows, caption, opts = {}) {
@@ -153,8 +171,10 @@ function rowsTable(rows, caption, opts = {}) {
       let v = r[k === 'description' ? (r.description !== undefined ? 'description' : 'desc') : k];
       if (['debit', 'credit', 'amount', 'balance'].includes(k)) v = v === null || v === undefined || v === '' ? '' : fmtCents(Math.round(Number(v) * 100));
       if (notRead && k === 'description') v = T.notReadRow(r.page);
+      if (k === 'check' && r.dry && S.R1) v = `${S.R1.R.dryCheck()} · ${v}`;
       const cell = h('td', { class: `col-${k}` }, v === undefined ? '' : String(v));
-      if (k === 'description' && r.check && r.check !== 'ok' && !notRead) cell.append(h('span', { class: 'cell-check' }, r.check));
+      if (k === 'description' && r.dry && S.R1) cell.append(h('span', { class: 'cell-check' }, `${S.R1.R.dryCheck()} · ${r.check}`));
+      else if (k === 'description' && r.check && r.check !== 'ok' && !notRead) cell.append(h('span', { class: 'cell-check' }, r.check));
       tr.append(cell);
     }
     tb.append(tr);
@@ -175,8 +195,9 @@ function rcRowsTable(rows, caption) {
     for (const k of head) {
       let v = r[k];
       if (['tax', 'total'].includes(k)) v = v === null || v === undefined ? '' : fmtCents(Math.round(Number(v) * 100));
+      if (k === 'check' && r.dry && S.R1) v = `${S.R1.R.dryCheck()} · ${v}`;
       const cell = h('td', { class: `col-${k}` }, v === undefined || v === null ? '' : String(v));
-      if (k === 'vendor' && r.check) cell.append(h('span', { class: 'cell-check' }, r.check));
+      if (k === 'vendor' && r.check) cell.append(h('span', { class: 'cell-check' }, r.dry && S.R1 ? `${S.R1.R.dryCheck()} · ${r.check}` : r.check));
       tr.append(cell);
     }
     tb.append(tr);
@@ -247,17 +268,23 @@ function blockReason(job) {
   return null;
 }
 
+// The most recently restored usable code drives the main CTA (R1 note 2): a plan or pack with the
+// pages for this job, an unused $9 code (left > 0; disabled with E23 when the job is too big), or
+// (R1 1a, preview-only) the owner code typed this session.
 function usablePurchase(job) {
-  if (!S.owned) return null;
-  const ok = S.owned.filter((o) => o.ok);
-  const plan = ok.find((o) => o.kind === 'plan' && o.left >= job.n);
-  if (plan) return plan;
-  const pack = ok.find((o) => o.kind === 'pack' && o.left >= job.n);
-  return pack || null;
+  const c = [];
+  if (S.owner.code && S.status.owner && S.R1 && !S.owner.locked) c.push({ kind: 'owner', at: S.owner.at, left: S.owner.left, cap: S.owner.cap });
+  (S.owned || []).filter((o) => o.ok).forEach((o) => {
+    if ((o.kind === 'plan' || o.kind === 'pack') && o.left >= job.n) c.push(o);
+    if (o.kind === 'one' && o.left > 0) c.push(o);
+  });
+  c.sort((a, b) => (b.at || 0) - (a.at || 0));
+  return c[0] || null;
 }
+// "Resume my $9 job (same files)": only for a one-off already started (left = 0, Flow 6g)
 function resumableOneOff() {
   if (!S.owned) return null;
-  return S.owned.find((o) => o.ok && o.kind === 'one') || null;
+  return S.owned.find((o) => o.ok && o.kind === 'one' && o.left === 0) || null;
 }
 
 function renderPrice(job) {
@@ -281,10 +308,19 @@ function renderPrice(job) {
   const showPlans = !owned || S.buyOther;
   let cta;
   if (owned && !S.buyOther) {
-    const label = owned.kind === 'plan' ? T.runPlan(owned.left) : T.usePack(owned.left);
+    const label = owned.kind === 'plan' ? T.runPlan(owned.left) : owned.kind === 'pack' ? T.usePack(owned.left) : owned.kind === 'one' ? T.runOne() : S.R1.R.ownerCta(owned.left);
     cta = h('button', { type: 'button', class: 'btn btn--primary btn--cta', id: 'cta', dataset: { kind: owned.kind, owned: 'yes' } }, label);
-    cta.addEventListener('click', () => runJob({ sid: owned.sid, kind: owned.kind }));
+    cta.addEventListener('click', () => (owned.kind === 'owner' ? runJob({ owner: S.owner.code, kind: 'owner' }) : runJob({ sid: owned.sid, kind: owned.kind })));
+    // why it is disabled sits next to it; never "Checkout isn't connected" (this button needs no checkout)
+    let why = block ? block.text : '';
+    if (!why && owned.kind === 'one' && !fits('one', job)) why = T.E23(job.n, L.CAP.one);
+    if (!why && owned.kind === 'owner' && owned.left !== null && owned.left !== undefined && job.n > owned.left) why = S.R1.R.ownerOver(job.n, owned.left);
+    cta.disabled = !!block || !!why || S.building;
+    if (why) cta.setAttribute('aria-describedby', 'owned-reason');
     box.append(cta);
+    box.append(h('p', { class: 'pricebox__reason small', id: 'owned-reason', hidden: !why }, why));
+    if (owned.kind === 'one') box.append(h('p', { class: 'pricebox__code small muted' }, T.usesCode(owned.sid.slice(-4))));
+    if (owned.kind === 'owner') box.append(h('p', { class: 'pricebox__secure small muted' }, S.R1.R.ownerUnder()));
     box.append(h('button', { type: 'button', class: 'btn btn--link', onclick: () => { S.buyOther = true; renderPreview(); } }, T.buySomethingElse()));
   }
   if (showPlans) {
@@ -312,13 +348,22 @@ function renderPrice(job) {
     const reasonId = 'cta-reason';
     if (disabled) cta.setAttribute('aria-describedby', reasonId);
     box.append(cta);
-    const why = block ? block.text : noLink ? T.checkoutOff() : '';
+    const reviewer = (S.status.mode === 'dry' || S.status.owner) && S.R1;
+    if (disabled && !block && noLink && reviewer) cta.setAttribute('aria-describedby', 'reviewer');
+    const why = block ? block.text : noLink && !reviewer ? T.checkoutOff() : '';
     box.append(h('p', { class: 'pricebox__reason small', id: reasonId, hidden: !why }, why));
     box.append(h('p', { class: 'pricebox__secure small muted' }, T.underCta()));
   }
-  if (owned && !S.buyOther && block) { cta.disabled = true; }
   if (resume) {
-    box.append(h('button', { type: 'button', class: 'btn btn--link pricebox__resume', onclick: () => runJob({ sid: resume.sid, kind: 'one', reissue: resume.left === 0 }) }, T.resumeOne()));
+    box.append(h('button', { type: 'button', class: 'btn btn--block pricebox__resume', onclick: () => runJob({ sid: resume.sid, kind: 'one', reissue: true }) }, T.resumeOne()));
+  }
+  // R1 3a: the reviewer line and code field, only on a dry or owner preview
+  const st = S.status;
+  if ((st.mode === 'dry' || st.owner) && S.R1) {
+    box.append(S.R1.reviewerBlock({
+      dry: st.mode === 'dry', owner: !!st.owner, msg: S.reviewerMsg,
+      onUse: async (raw) => { const m = await applyCode(raw); S.reviewerMsg = m; setTimeout(() => renderPreview(), 0); return m; },
+    }));
   }
 }
 
@@ -352,10 +397,13 @@ async function fetchStatus(rerender) {
   if (rerender) { S.status.state = 'unknown'; renderPreview(); }
   const r = await call('/status', { timeout: L.STATUS_TIMEOUT_MS });
   if (r.ok && r.data && r.data.ok) {
-    S.status = { state: r.data.provider === 'down' ? 'down' : 'up', batch: Math.max(1, Math.min(L.MAX_BATCH_DEFAULT, Number(r.data.batch) || L.MAX_BATCH_DEFAULT)), mode: r.data.mode || 'live' };
+    S.status = { state: r.data.provider === 'down' ? 'down' : 'up', batch: Math.max(1, Math.min(L.MAX_BATCH_DEFAULT, Number(r.data.batch) || L.MAX_BATCH_DEFAULT)), mode: r.data.mode || 'live', owner: r.data.owner === true };
   } else {
-    S.status = { state: 'unreachable', batch: L.MAX_BATCH_DEFAULT, mode: 'live' };
+    S.status = { state: 'unreachable', batch: L.MAX_BATCH_DEFAULT, mode: 'live', owner: false };
   }
+  runtime.status = S.status;
+  window.dispatchEvent(new CustomEvent('sumline:status'));
+  if ((S.status.mode === 'dry' || S.status.owner) && !S.R1) S.R1 = await import('./owner.js');
   renderPreview();
 }
 
@@ -363,19 +411,22 @@ async function fetchStatus(rerender) {
 async function loadOwned() {
   if (S.owned || S.ownedLoading || PAGE !== 'tool' || S.status.state === 'unreachable') return;
   const list = purchases.list().slice(-5).reverse();
-  if (!list.length) { S.owned = []; return; }
+  if (!list.length) { S.owned = []; renderPreview(); return; }
   S.ownedLoading = true;
+  const gen = S.ownedGen;
   const out = [];
   for (const p of list) {
     if (p.kind === 'one' && Date.now() - Date.parse(p.at) > L.ONE_OFF_MAX_AGE_DAYS * 864e5) continue;
     const r = await api.confirm(p.sid);
-    if (r.ok && r.data) out.push({ sid: p.sid, ok: true, kind: r.data.kind, cap: r.data.cap, left: r.data.left, reset: r.data.reset });
+    if (r.ok && r.data) out.push({ sid: p.sid, ok: true, kind: r.data.kind, cap: r.data.cap, left: r.data.left, reset: r.data.reset, at: Date.parse(p.at) || 0 });
   }
-  S.owned = out;
   S.ownedLoading = false;
+  if (gen !== S.ownedGen) { loadOwned(); return; } // a code was restored meanwhile
+  S.owned = out;
   renderPreview();
 }
-window.addEventListener('sumline:purchases', () => { S.owned = null; S.buyOther = false; if (S.job) loadOwned(); });
+window.addEventListener('sumline:purchases', () => { S.ownedGen++; S.owned = null; S.buyOther = false; if (S.job) loadOwned(); else renderPreview(); });
+window.addEventListener('sumline:owner', (e) => { S.owner = { ...S.owner, code: e.detail.code, at: Date.now(), locked: false }; S.buyOther = false; renderPreview(); });
 
 // ---------------------------------------------------------------- checkout (S4)
 function checkoutClick(kind) {
@@ -505,9 +556,20 @@ function startError(r, sid, kind, retry) {
   return runError('E16', T.E16tool(sid), [btn(T.tryAgain(), retry, 'btn'), reportLink()]);
 }
 
-async function runJob({ sid, kind, reissue = false }) {
+// owner (R1): the owner code from memory; the run is a paid run in every respect except Stripe
+function ownerStartError(r, retry) {
+  const o = S.R1.ownerError(r, S.job.n);
+  if (!o) return startError(r, 'owner', 'owner', retry); // E24 / E16 / E17 as for a paid start
+  if (o.drop) S.owner = { ...S.owner, code: null, locked: !!o.lock };
+  if (o.left !== undefined) S.owner = { ...S.owner, left: o.left, cap: o.cap };
+  S.reviewerMsg = { text: o.text, kind: 'error' };
+  return runError(o.code, o.text, [btn(S.R1.R.backToPreview(), backToPreview)]);
+}
+
+async function runJob({ sid, kind, reissue = false, owner = null }) {
   const job = S.job;
-  if (!job || !L.isSessionId(sid)) return;
+  if (!job || (!owner && !L.isSessionId(sid))) return;
+  if (owner) sid = 'owner';
   const stored = purchases.get(sid);
   if (PAGE === 'paid' && stored && stored.claimed && !reissue && !S.run) { showClaimed(); return; }
   lockInput(true);
@@ -519,20 +581,27 @@ async function runJob({ sid, kind, reissue = false }) {
   els.runBody.append(progress, line, keep, live);
   guardLeave(true);
 
-  const jh = await jobHash(intake.ready());
+  const jh = await E.jobHash(intake.ready());
   const spec = { jh, d: job.mode, n: job.n, t: job.t };
-  const r = await api.start(sid, spec, reissue);
+  const r = owner ? await api.owner(owner, spec, reissue) : await api.start(sid, spec, reissue);
   if (!r.ok || !r.data || !r.data.ticket) {
     clear(els.runBody);
+    if (owner) return ownerStartError(r, () => runJob({ owner, kind, reissue }));
     return startError(r, sid, kind, () => runJob({ sid, kind, reissue }));
   }
   const d = r.data;
-  purchases.add({ sid, kind: d.kind });
-  purchases.claim(sid);
-  post({ type: 'claimed', sid });
+  if (owner) {
+    S.owner = { ...S.owner, left: d.left, cap: d.cap, reset: d.reset };
+    S.reviewerMsg = { text: S.R1.R.ownerRestored(d.left, d.cap), kind: 'ok' };
+    els.runBody.prepend(S.R1.banner('owner', job.mode));
+  } else {
+    purchases.add({ sid, kind: d.kind });
+    purchases.claim(sid);
+    post({ type: 'claimed', sid });
+  }
   S.run = { sid, kind: d.kind || kind, ticket: d.ticket, left: d.left, cap: d.cap, reset: d.reset, models: new Set(), rerunDone: false, finishTried: false, startedAt: Date.now(), done: 0, ui: { progress, line, live }, lastLine: 0, reissued: reissue };
   if (PAGE === 'paid') hidePaidWait();
-  await loadParser();
+  await E.loadParser();
   const all = [];
   for (let i = 0; i < job.n + job.t; i++) all.push(i);
   await passes(all);
@@ -557,13 +626,13 @@ function progressText() {
 }
 
 async function getPart(i) {
-  const p = partOf(S.job, i);
+  const p = E.partOf(S.job, i);
   if (p.kind === 'text') return { field: `t${i}`, value: p.text.slice(0, L.TEXT_PAGE_CHARS) };
   const rec = S.job.index[i].unit.rec;
   const src = await intake.sourceFor(rec, p.page);
   try {
-    const r = await rasterise(src.source, src.w, src.h);
-    return { field: `p${i}`, value: toBase64(r.buf) };
+    const r = await E.rasterise(src.source, src.w, src.h);
+    return { field: `p${i}`, value: E.toBase64(r.buf) };
   } finally { src.dispose(); }
 }
 
@@ -587,8 +656,8 @@ async function send(indices, ticket, model) {
     ticket, indices,
     batch: model === 's' ? Math.min(L.SONNET_BATCH, S.status.batch) : S.status.batch,
     getPart,
-    onResult: (i, out) => { applyResult(S.job, i, out, model); R.models.add(model); if (model === 'h') { R.done++; pageRowsPreview(i); } },
-    onNotRead: (i) => { markNotRead(S.job, i); if (model === 'h') R.done++; },
+    onResult: (i, out) => { E.applyResult(S.job, i, out, model); R.models.add(model); if (out.dry && !R.dry && S.R1) { R.dry = true; els.runBody.prepend(S.R1.banner('dry', S.job.mode)); } if (model === 'h') { R.done++; pageRowsPreview(i); } },
+    onNotRead: (i) => { E.markNotRead(S.job, i); if (model === 'h') R.done++; },
     onWait: (s) => sayProgress(T.E25(s), true),
     onProgress: () => { R.ui.progress.value = String(R.done); R.ui.progress.setAttribute('aria-valuetext', progressText()); sayProgress(progressText()); },
   });
@@ -605,14 +674,14 @@ async function passes(indices) {
     if (res.stop === 'ticket') return ticketExpired(res.remaining);
     if (res.stop === 'job') return jobGone();
   }
-  let sum = finalise(job);
+  let sum = E.finalise(job);
   if (sum.rerun.length && !R.rerunDone) {
     R.rerunDone = true;
     sayProgress(T.rerunLine(sum.rerun.length), true);
     const rr = await api.rerun(R.ticket, sum.rerun);
     if (rr.ok && rr.data && rr.data.ticket) {
       await send(sum.rerun, rr.data.ticket, 's');
-      sum = finalise(job);
+      sum = E.finalise(job);
     }
   }
   done();
@@ -631,10 +700,12 @@ async function resume(indices) {
   const R = S.run;
   guardLeave(true);
   setState('running');
-  const jh = await jobHash(intake.ready());
-  const r = await api.start(R.sid, { jh, d: S.job.mode, n: S.job.n, t: S.job.t }, true);
+  const jh = await E.jobHash(intake.ready());
+  const spec = { jh, d: S.job.mode, n: S.job.n, t: S.job.t };
+  const r = R.kind === 'owner' ? await api.owner(S.owner.code, spec, true) : await api.start(R.sid, spec, true);
   if (!r.ok || !r.data || !r.data.ticket) {
     if (r.status === 409 || r.status === 404) return jobGone();
+    if (R.kind === 'owner') return ownerStartError(r, () => resume(indices));
     return startError(r, R.sid, R.kind, () => resume(indices));
   }
   R.ticket = r.data.ticket;
@@ -645,7 +716,7 @@ async function resume(indices) {
 }
 
 function jobGone() {
-  finalise(S.job);
+  E.finalise(S.job);
   S.run.finishTried = true;
   done(true);
 }
@@ -657,12 +728,17 @@ function done(gaveUp) {
   guardLeave(false);
   setState('done');
   lockInput(false);
-  S.rows = outputRows(job);
+  const isOwner = R.kind === 'owner';
+  const isDry = !isOwner && !!S.R1 && runIsDry(job);
+  S.rows = E.outputRows(job, { owner: isOwner ? S.R1.R.noteOwner() : '', dry: isDry ? S.R1.R.noteDry() : '' });
   S.downloaded = false;
-  els.runH.textContent = T.doneH2();
+  els.runH.textContent = isOwner ? S.R1.R.doneH2Owner() : isDry ? S.R1.R.doneH2Dry() : T.doneH2();
   clear(els.runBody);
   const sum = job.summary;
   const out = els.runBody;
+  // R1: OWNER TEST / DRY RUN banner above the cards (text, role="note", never animated)
+  if (isOwner) out.append(S.R1.banner('owner', job.mode));
+  else if (isDry) out.append(S.R1.banner('dry', job.mode));
   // per-statement lines and chips (S7)
   if (job.mode === 'st') {
     for (const u of job.units) {
@@ -672,11 +748,11 @@ function done(gaveUp) {
       out.append(h('article', { class: 'card statement-card', dataset: { status: u.result ? u.result.status : 'unreconciled' } },
         h('h3', { class: 'card__title' }, h('span', { class: 'file__name', title: u.name }, u.name)),
         p.period ? h('p', { class: 'small muted' }, T.period(p.period.start, p.period.end)) : null,
-        reconBlock(u.result),
+        reconBlock(u.result, isDry && u.pages.some((pg) => pg.dry)),
         reasons.length ? h('ul', { class: 'card__reasons' }, reasons.map((r) => h('li', {}, reasonOf(r)))) : null));
     }
   } else {
-    out.append(h('div', { class: 'recon recon--text', dataset: { status: 'unreconciled' } }, h('p', {}, T.lineReceipts(sum.okReceipts, sum.receipts, sum.flaggedReceipts)), h('p', {}, chip('unreconciled'))));
+    out.append(h('div', { class: 'recon recon--text', dataset: { status: 'unreconciled' } }, h('p', {}, T.lineReceipts(sum.okReceipts, sum.receipts, sum.flaggedReceipts)), h('p', {}, chip(isDry ? 'dry' : 'unreconciled'))));
   }
   if (sum.notReadPages.length) {
     out.append(h('p', { class: 'msg msg--notread run__incomplete' }, T.incomplete(sum.notReadPages.length)));
@@ -691,7 +767,7 @@ function done(gaveUp) {
     }
   }
   const flagged = job.mode === 'st' ? sum.flaggedRows : sum.flaggedReceipts;
-  if (flagged) out.append(h('p', { class: 'run__refund' }, T.refundLead(), ' ', h('a', { href: refundMailto(R.sid, job, flagged) }, T.refundLink())));
+  if (flagged && !isOwner && !isDry) out.append(h('p', { class: 'run__refund' }, T.refundLead(), ' ', h('a', { href: refundMailto(R.sid, job, flagged) }, T.refundLink())));
   // the table, flagged rows highlighted
   out.append(job.mode === 'rc' ? rcRowsTable(S.rows, T.resultCaption()) : rowsTable(S.rows, T.resultCaption(), { full: true, reason: reasonOf }));
   // the disclosure block directly above the format picker and Download (S1)
@@ -717,6 +793,10 @@ function done(gaveUp) {
 function reasonOf(r) {
   const reread = S.job.units.some((u) => u.type === 'st' && u.name === r.file && u.pages.some((p) => p.page === r.page && p.reread));
   return T.flagReason(String(r.check).replace(/^FLAGGED: /, ''), r.page, reread);
+}
+
+function runIsDry(job) {
+  return job.units.some((u) => (u.type === 'rc' ? u.dry : u.pages.some((p) => p.dry)));
 }
 
 function finishedPages(job) {
@@ -753,7 +833,7 @@ async function finishRemaining(e) {
   const res = await send(idx, R.ticket, 'h');
   if (res.stop === 'ticket') return ticketExpired(res.remaining);
   if (res.stop === 'job') return jobGone();
-  finalise(job);
+  E.finalise(job);
   done();
 }
 
@@ -767,11 +847,15 @@ async function download(fmt) {
     runDate: new Date().toISOString().slice(0, 10),
     browserOnly: job.n === 0 && job.t === 0,
   };
+  const isOwner = R && R.kind === 'owner';
+  const isDry = !isOwner && !!S.R1 && runIsDry(job);
+  if (isOwner) Object.assign(info, { tagLine: S.R1.R.sumOwner() });
+  if (isDry) Object.assign(info, { tagLine: S.R1.R.sumDry(), sheetPrefix: 'DRY RUN ' });
   let blob, saveName, save;
   try {
     const O = await lazyOutput();
     blob = fmt === 'xlsx' ? await O.buildXlsx(job, S.rows, info) : O.buildCsv(job.mode, S.rows);
-    saveName = O.fileName(fmt);
+    saveName = O.fileName(fmt, new Date(), isOwner ? 'OWNER-TEST' : isDry ? 'DRY-RUN' : '');
     save = O.saveBlob;
   } catch (e) {
     err.append(h('div', { class: 'msg msg--error', role: 'alert', dataset: { error: 'E30' } }, h('p', {}, T.E30()),
@@ -779,7 +863,7 @@ async function download(fmt) {
     return;
   }
   save(blob, saveName);
-  if (R) goal('download', R.kind);
+  if (R && !isOwner && !isDry) goal('download', R.kind); // test downloads are not conversions (R1, CTO)
   if (!S.downloaded) clearSources();
   S.downloaded = true;
   renderAfter(fmt);
@@ -919,6 +1003,12 @@ async function paidInit() {
 }
 
 // ---------------------------------------------------------------- start
+// pdf.js core prefetched on idle (its worker starts on the first PDF), with the engine
+function idleEngine() {
+  const go = () => engine().then((x) => x.prefetchPdfjs()).catch(() => {});
+  if ('requestIdleCallback' in window) requestIdleCallback(go, { timeout: 4000 }); else setTimeout(go, 1500);
+}
+
 function init() {
   captureUtm();
   if (body.dataset.beacon === 'dynamic') loadBeacon();
@@ -927,14 +1017,14 @@ function init() {
   if (PAGE === 'paid') {
     show(tool, false);
     fetchStatus(false);
-    prefetchPdfjs();
+    idleEngine();
     paidInit();
     return;
   }
   wireInput();
   wireReturnPath();
   fetchStatus(false);
-  prefetchPdfjs();
+  idleEngine();
 }
 
 init();

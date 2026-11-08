@@ -21,10 +21,14 @@ function write(list) {
 export const purchases = {
   list: read,
   get: (sid) => read().find((p) => p.sid === sid) || null,
-  add({ sid, kind, at }) {
-    const list = read();
+  // restored: true marks a Restore / "Use code" as the newest code (R1: it drives the main CTA)
+  add({ sid, kind, at, restored }) {
+    let list = read();
     const old = list.find((p) => p.sid === sid);
-    if (old) { if (kind) old.kind = kind; } else list.push({ sid, kind: kind || null, at: at || new Date().toISOString() });
+    if (old) {
+      if (kind) old.kind = kind;
+      if (restored) { old.at = new Date().toISOString(); list = list.filter((p) => p !== old).concat(old); }
+    } else list.push({ sid, kind: kind || null, at: at || new Date().toISOString() });
     write(list);
   },
   claim(sid) {
@@ -70,4 +74,6 @@ export const api = {
   confirm: (sid) => verify({ session_id: sid }),
   start: (sid, job, reissue = false) => verify(reissue ? { session_id: sid, job, reissue: true } : { session_id: sid, job }),
   rerun: (ticket, ix) => verify({ ticket, rerun: ix }),
+  // R1: the owner shape (plan.md § Worker endpoints); the code goes only to /verify
+  owner: (code, job, reissue = false) => verify(reissue ? { owner_code: code, job, reissue: true } : { owner_code: code, job }),
 };
