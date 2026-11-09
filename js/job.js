@@ -150,6 +150,7 @@ export function applyResult(job, i, res, model) {
   const out = res && res.out;
   target.notRead = false;
   target.notReadDetail = null;
+  target.notReadRefused = null;
   target.dry = !!(res && res.dry); // R1 3b: the Worker's own word, never a guess
   if (model === 's') target.reread = true;
   if (e.unit.type === 'rc') { target.out = out && typeof out === 'object' ? out : null; target.truncated = !!res.truncated; return; }
@@ -165,7 +166,8 @@ export function applyResult(job, i, res, model) {
   if (target.isText) { target.opening = null; target.closing = null; }
 }
 
-export function markNotRead(job, i, detail = null) {
+// detail: the owner-test reason text; refused: {code, fields, scope} when the Worker refused it (R3)
+export function markNotRead(job, i, detail = null, refused = null) {
   const e = job.index[i];
   if (!e) return;
   const target = e.unit.type === 'rc' ? e.unit : e.page;
@@ -173,6 +175,7 @@ export function markNotRead(job, i, detail = null) {
   if (e.unit.type === 'st' && target.isText) return; // a text page keeps its parsed rows; it stays flagged by the chain (D9)
   target.notRead = true;
   target.notReadDetail = detail; // R2: shown only on an owner test
+  target.notReadRefused = refused;
 }
 
 // Re-runs the chain over everything; returns the job summary.
@@ -225,7 +228,7 @@ export function finalise(job) {
 export function outputRows(job, labels = {}) {
   const rows = rawRows(job);
   // R2: an owner test's NOT READ row carries the provider's reason after the label
-  if (labels.owner) rows.forEach((r) => { const why = r.notRead && labels.notRead ? labels.notRead(r.detail) : r.note; r.note = why ? `${labels.owner}; ${why}` : labels.owner; });
+  if (labels.owner) rows.forEach((r) => { const why = r.notRead && labels.notRead ? labels.notRead(r) : r.note; r.note = why ? `${labels.owner}; ${why}` : labels.owner; });
   if (labels.dry) rows.forEach((r) => { if (r.dry) r.note = r.note ? `${labels.dry}; ${r.note}` : labels.dry; });
   return rows;
 }
@@ -234,14 +237,14 @@ function rawRows(job) {
   const rows = [];
   for (const u of job.units) {
     if (u.type === 'rc') {
-      if (u.notRead) { rows.push({ file: u.name, image: u.page, check: CHECK_NOT_READ, notRead: true, detail: u.notReadDetail || null }); continue; }
+      if (u.notRead) { rows.push({ file: u.name, image: u.page, check: CHECK_NOT_READ, notRead: true, detail: u.notReadDetail || null, refused: u.notReadRefused || null }); continue; }
       rows.push({ file: u.name, image: u.page, ...(u.row || {}), check: u.check ? u.check.check : 'unreconciled', note: u.check ? u.check.note : '', dry: !!u.dry });
       continue;
     }
     const checks = (u.result && u.result.rows) || [];
     let k = 0;
     for (const p of u.pages) {
-      if (p.notRead) { rows.push({ file: u.name, page: p.page, check: CHECK_NOT_READ, notRead: true, detail: p.notReadDetail || null }); continue; }
+      if (p.notRead) { rows.push({ file: u.name, page: p.page, check: CHECK_NOT_READ, notRead: true, detail: p.notReadDetail || null, refused: p.notReadRefused || null }); continue; }
       if (!(p.isText || p.src === 'ai')) continue;
       const pageRows = [];
       for (const r of p.rows) {

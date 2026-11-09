@@ -50,6 +50,27 @@ export const R = {
   notReadItem: (file, page, d) => `${file}, page ${page}: ${d ? `provider said: ${d}` : 'no reply from the provider (network or timeout)'}`,
   noteNotRead: (d) => (d ? `provider said: ${d}` : 'no reply from the provider (network or timeout)'),
   sumNotRead: (file, page, d) => `${file} page ${page}: ${d ? `provider said: ${d}` : 'no reply from the provider (network or timeout)'}`,
+  // R3 (revisions/round-3.md change 1): a refusal by the Worker names its code and fields, never "no reply".
+  // ref = {code, fields: {max?, max_bytes?, …}, scope: 'batch' | 'part' | 'local'}
+  cause: (ref) => {
+    const f = Object.entries(ref.fields || {}).map(([k, v]) => (k === 'max' && ref.code === 'too-long' ? `max ${v} bytes`
+      : k === 'max' && ref.code === 'batch' ? `max ${v} pages` : k === 'max_bytes' ? `max ${v} bytes` : `${k}: ${v}`));
+    return `${ref.code}${f.length ? ` (${f.join(', ')})` : ''}`;
+  },
+  refusedWhat: (ref) => (ref.scope === 'part' ? 'the Worker refused this page' : 'the Worker refused the batch'),
+  notReadRefused: (ref) => (ref.scope === 'local'
+    ? (ref.code === 'too-long' ? 'NOT READ — this text page is over the 8,000-byte limit' : "NOT READ — this page image didn't pass the Worker's check") // local: gap for too-large
+    : `NOT READ — ${R.refusedWhat(ref)}: ${R.cause(ref)}`),
+  noteRefused: (ref) => (ref.scope === 'local'
+    ? (ref.code === 'too-long' ? 'text page over the 8,000-byte limit' : "page image didn't pass the Worker's check")
+    : `${ref.scope === 'part' ? 'Worker refused this page' : 'Worker refused the batch'}: ${R.cause(ref)}`),
+  E37refused: (ref) => {
+    const head = `Owner test: the Worker refused the batch — ${R.cause(ref)}. Nothing was sent to the AI.`;
+    if (ref.code === 'too-long') return `${head} One text page is over the limit: remove that file and run again, or send this line with Report a problem.`;
+    if (ref.code === 'too-large' || ref.code === 'encoding') return `${head} A page image didn't pass the Worker's check: send this line with Report a problem.`;
+    return `${head} Press Finish the remaining pages to try again; if it repeats, send this line with Report a problem.`;
+  },
+  E37mixed: (first, n) => `Owner test: every page failed — first cause: ${first} (${n} different causes; each page shows its own).`,
   E37same: (d) => `Owner test: every page failed — provider said: ${d}. Press Finish the remaining pages to try again; if the same error comes back, the request needs fixing, not your files.`,
   E37diff: (d, n) => `Owner test: every page failed — first error: ${d} (${n} different errors; each page shows its own). Press Finish the remaining pages to try again.`,
 };

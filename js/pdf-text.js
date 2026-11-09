@@ -1,7 +1,7 @@
 // pdf.js glue: open (with the in-page password prompt, D17), text items for the column parser,
 // page -> canvas for the rasteriser and the 96 px thumbnails. pdf.js 4.10.38 is vendored; the
 // core is prefetched on idle and its worker starts on the first PDF (core + worker > 450 KB gz).
-import { TEXT_ITEMS_MIN } from './limits.js';
+import { TEXT_ITEMS_MIN, wireText } from './limits.js';
 
 let libP = null;
 const VENDOR = new URL('../vendor/', import.meta.url).href;
@@ -50,7 +50,10 @@ export async function readPage(doc, pageNo) {
     .filter((it) => typeof it.str === 'string' && it.str.trim() !== '')
     .map((it) => ({ str: it.str, x: it.transform[4], y: it.transform[5], w: it.width, h: Math.abs(it.height || it.transform[3]) }));
   const digits = items.filter((it) => /\d/.test(it.str)).length;
-  const text = linesOf(items);
+  // lone surrogates become U+FFFD (3 bytes) in a form entry: measure the well-formed string (R3);
+  // a CR or LF inside an item's str is put in its wire form too (lone CR -> CRLF, R3 QA)
+  const raw = linesOf(items);
+  const text = wireText(typeof raw.toWellFormed === 'function' ? raw.toWellFormed() : raw);
   page.cleanup();
   // chars = UTF-8 bytes, the unit the Worker caps (TEXT_PAGE_CHARS = 8,000 bytes, qa #19)
   return { page: pageNo, items, text, chars: new TextEncoder().encode(text).length, isText: digits >= TEXT_ITEMS_MIN };
@@ -65,7 +68,9 @@ function linesOf(items) {
     const l = lines[lines.length - 1];
     if (l && Math.abs(l.y - it.y) <= 2) l.parts.push(it); else lines.push({ y: it.y, parts: [it] });
   }
-  return lines.map((l) => l.parts.sort((a, b) => a.x - b.x).map((p) => p.str.trim()).join('  ')).join('\n');
+  // CRLF: multipart/form-data turns every bare LF of a string part into CRLF on the wire, so the
+  // string measured here is byte-for-byte the string the Worker measures (R3, the UTF-8 byte gate)
+  return lines.map((l) => l.parts.sort((a, b) => a.x - b.x).map((p) => p.str.trim()).join('  ')).join('\r\n');
 }
 
 // Render a page so its long edge is about `longEdge` px. -> {canvas, w, h}

@@ -11,7 +11,17 @@ let lastEnd = 0;
 // getPart(i) -> Promise<{field: 'p<i>' | 't<i>', value: string}> (built on demand, dropped once sent)
 // onResult(i, {out, truncated}); onNotRead(i, reason, detail); onWait(seconds); onProgress()
 // detail (R2): the Worker's provider reason, sent on owner tickets only; the last one seen per page
+// refusal (R3): {code, fields} when the Worker refused the batch (400/409/413) or one part of it
+// (a per-part gate error); never confused with "no reply" (network / 5xx after the retries)
 // -> {stop: null | 'ticket' | 'job', remaining: [indices not finished]}
+const PAGE_ERRORS = new Set(['rate', 'provider', 'invalid', 'declined', 'done']);
+// the refusal's own fields, e.g. {max: 8000} or {max_bytes: 3500000}; primitives only (copy-r1 renders them)
+export function fieldsOf(o, skip = ['error', 'i', 'detail', 'owner', 'dry']) {
+  const f = {};
+  Object.entries(o || {}).forEach(([k, v]) => { if (!skip.includes(k) && ['string', 'number', 'boolean'].includes(typeof v)) f[k] = v; });
+  return f;
+}
+
 export async function sendPages({ ticket, indices, batch, getPart, onResult, onNotRead, onWait, onProgress }) {
   const queue = indices.slice();
   const tries = new Map();
@@ -35,7 +45,7 @@ export async function sendPages({ ticket, indices, batch, getPart, onResult, onN
       const i = queue[0];
       let part = built.get(i);
       if (!part) {
-        try { part = await getPart(i); } catch (e) { queue.shift(); onNotRead(i, 'raster'); continue; }
+        try { part = await getPart(i); } catch (e) { queue.shift(); onNotRead(i, e && e.refusal ? e.refusal.code : 'raster', null, e && e.refusal ? e.refusal : null); continue; }
         built.set(i, part);
       }
       if (sent.length && bytes + part.value.length > BATCH_BYTES) break;
@@ -63,8 +73,10 @@ export async function sendPages({ ticket, indices, batch, getPart, onResult, onN
     } else if (r.network || r.status >= 500) {
       sent.forEach((i) => { delay = Math.max(delay, fail(i, 'provider', true)); });
     } else if (!r.ok || !r.data || !Array.isArray(r.data.pages)) {
-      // 400 batch/index/too-large/encoding/too-long, 409 done, 413: never for a legitimate page
-      sent.forEach((i) => onNotRead(i, String((r.data && r.data.error) || r.status)));
+      // 400 batch/index/too-large/encoding/too-long, 409 done, 413: never for a legitimate page.
+      // The Worker's code and fields travel with each page (R3), not a "no reply" guess.
+      const refusal = { code: String((r.data && r.data.error) || r.status), fields: fieldsOf(r.data), status: r.status, scope: 'batch' };
+      sent.forEach((i) => onNotRead(i, refusal.code, null, refusal));
     } else {
       const seen = new Set();
       let rateWait = 0;
@@ -76,7 +88,9 @@ export async function sendPages({ ticket, indices, batch, getPart, onResult, onN
         if (!pg.error) { onResult(i, { out: pg.out, truncated: !!pg.truncated, dry: !!pg.dry, owner: !!pg.owner }); continue; }
         if (pg.error === 'rate') { rateWait = Math.max(rateWait, Number(pg.retry_after) || DEFAULT_RETRY_AFTER_S); fail(i, 'rate', true); continue; }
         if (pg.error === 'provider') { delay = Math.max(delay, fail(i, 'provider', true)); continue; }
-        onNotRead(i, pg.error, detail.get(i) || null); // invalid, declined, done
+        // invalid, declined, done; any other code is a per-part gate refusal (R3: e.g. too-long)
+        const gate = PAGE_ERRORS.has(pg.error) ? null : { code: String(pg.error), fields: fieldsOf(pg), status: 200, scope: 'part' };
+        onNotRead(i, pg.error, detail.get(i) || null, gate);
       }
       sent.forEach((i) => { if (!seen.has(i)) delay = Math.max(delay, fail(i, 'provider', true)); });
       if (rateWait) { onWait(rateWait); delay = Math.max(delay, rateWait * 1000); }

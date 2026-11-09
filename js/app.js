@@ -629,11 +629,22 @@ function progressText() {
 
 async function getPart(i) {
   const p = E.partOf(S.job, i);
-  if (p.kind === 'text') return { field: `t${i}`, value: p.text.slice(0, L.TEXT_PAGE_CHARS) };
+  // R3: the exact measured string is sent, never sliced; a part the Worker's gate would refuse is
+  // held back here and reported with the gate's code (it never reaches the Worker)
+  if (p.kind === 'text') {
+    // the wire form (every CRLF, lone CR and lone LF as CRLF): the measured string is the sent string
+    const value = L.wireText(p.text);
+    const bytes = new TextEncoder().encode(value).length;
+    if (bytes > L.TEXT_PAGE_CHARS) throw Object.assign(new Error('gate'), { refusal: { code: 'too-long', fields: { max: L.TEXT_PAGE_CHARS }, scope: 'local' } });
+    return { field: `t${i}`, value };
+  }
   const rec = S.job.index[i].unit.rec;
   const src = await intake.sourceFor(rec, p.page);
   try {
     const r = await E.rasterise(src.source, src.w, src.h);
+    if (Math.max(r.w, r.h) > L.IMG_LONG_EDGE || Math.ceil(r.w / 28) * Math.ceil(r.h / 28) > L.IMG_TOKEN_CAP) {
+      throw Object.assign(new Error('gate'), { refusal: { code: 'too-large', fields: {}, scope: 'local' } });
+    }
     return { field: `p${i}`, value: E.toBase64(r.buf) };
   } finally { src.dispose(); }
 }
@@ -659,7 +670,12 @@ async function send(indices, ticket, model) {
     batch: model === 's' ? Math.min(L.SONNET_BATCH, S.status.batch) : S.status.batch,
     getPart,
     onResult: (i, out) => { E.applyResult(S.job, i, out, model); R.models.add(model); if (out.dry && !R.dry && S.R1) { R.dry = true; els.runBody.prepend(S.R1.banner('dry', S.job.mode)); } if (model === 'h') { R.done++; pageRowsPreview(i); } },
-    onNotRead: (i, why, detail) => { E.markNotRead(S.job, i, R.kind === 'owner' ? detail : null); if (model === 'h') R.done++; },
+    onNotRead: (i, why, detail, refused) => {
+      // owner tests name the cause: the Worker's refusal code (R3), the provider's reason (R2), or no reply
+      const own = R.kind === 'owner';
+      E.markNotRead(S.job, i, own ? (refused ? S.R1.R.cause(refused) : detail) : null, own ? refused : null);
+      if (model === 'h') R.done++;
+    },
     onWait: (s) => sayProgress(T.E25(s), true),
     onProgress: () => { R.ui.progress.value = String(R.done); R.ui.progress.setAttribute('aria-valuetext', progressText()); sayProgress(progressText()); },
   });
@@ -732,7 +748,7 @@ function done(gaveUp) {
   lockInput(false);
   const isOwner = R.kind === 'owner';
   const isDry = !isOwner && !!S.R1 && runIsDry(job);
-  S.rows = E.outputRows(job, { owner: isOwner ? S.R1.R.noteOwner() : '', dry: isDry ? S.R1.R.noteDry() : '', notRead: isOwner ? S.R1.R.noteNotRead : null });
+  S.rows = E.outputRows(job, { owner: isOwner ? S.R1.R.noteOwner() : '', dry: isDry ? S.R1.R.noteDry() : '', notRead: isOwner ? (r) => (r.refused ? S.R1.R.noteRefused(r.refused) : S.R1.R.noteNotRead(r.detail)) : null });
   S.downloaded = false;
   els.runH.textContent = isOwner ? S.R1.R.doneH2Owner() : isDry ? S.R1.R.doneH2Dry() : T.doneH2();
   clear(els.runBody);
@@ -760,9 +776,14 @@ function done(gaveUp) {
     out.append(h('p', { class: 'msg msg--notread run__incomplete' }, T.incomplete(sum.notReadPages.length)));
     if (isOwner && finishedPages(job) === 0) {
       // R2: E37 replaces E27 on an owner test where every page failed; the retry button stays
-      const ds = S.rows.filter((r) => r.notRead).map((r) => r.detail || S.R1.R.noteNotRead(null));
+      const nr = S.rows.filter((r) => r.notRead);
+      const ds = nr.map((r) => r.detail || S.R1.R.noteNotRead(null));
       const uniq = [...new Set(ds)];
-      out.append(h('div', { class: 'msg msg--error', role: 'alert', dataset: { error: 'E37' } }, h('p', {}, uniq.length <= 1 ? S.R1.R.E37same(uniq[0] || S.R1.R.noteNotRead(null)) : S.R1.R.E37diff(ds[0], uniq.length)),
+      const ref = nr.length && nr.every((r) => r.refused) && uniq.length === 1 ? nr[0].refused : null;
+      const e37 = ref ? S.R1.R.E37refused(ref)
+        : uniq.length <= 1 ? S.R1.R.E37same(uniq[0] || S.R1.R.noteNotRead(null))
+        : nr.some((r) => r.refused) ? S.R1.R.E37mixed(ds[0], uniq.length) : S.R1.R.E37diff(ds[0], uniq.length);
+      out.append(h('div', { class: 'msg msg--error', role: 'alert', dataset: { error: 'E37' } }, h('p', {}, e37),
         h('div', { class: 'msg__actions' }, btn(T.finish(), finishRemaining, 'btn btn--primary'), reportLink())));
     } else if (gaveUp || R.finishTried) {
       const fin = finishedPages(job);
@@ -780,9 +801,9 @@ function done(gaveUp) {
   const notReadRows = isOwner ? S.rows.filter((r) => r.notRead) : [];
   if (notReadRows.length) {
     out.append(h('div', { class: 'notread-list' }, h('h3', {}, S.R1.R.notReadListHead()),
-      h('ul', {}, notReadRows.map((r) => h('li', {}, S.R1.R.notReadItem(r.file, r.page !== undefined ? r.page : r.image, r.detail))))));
+      h('ul', {}, notReadRows.map((r) => h('li', {}, r.refused ? `${r.file}, page ${r.page !== undefined ? r.page : r.image}: ${r.detail}` : S.R1.R.notReadItem(r.file, r.page !== undefined ? r.page : r.image, r.detail))))));
   }
-  const ownerDetail = isOwner ? (r) => (r.detail ? S.R1.R.notReadDetail(r.detail) : S.R1.R.notReadNoReply()) : null;
+  const ownerDetail = isOwner ? (r) => (r.refused ? S.R1.R.notReadRefused(r.refused) : r.detail ? S.R1.R.notReadDetail(r.detail) : S.R1.R.notReadNoReply()) : null;
   out.append(job.mode === 'rc' ? rcRowsTable(S.rows, T.resultCaption(), ownerDetail) : rowsTable(S.rows, T.resultCaption(), { full: true, reason: reasonOf, detail: ownerDetail }));
   // the disclosure block directly above the format picker and Download (S1)
   const browserOnly = job.n === 0 && job.t === 0;
@@ -863,7 +884,7 @@ async function download(fmt) {
   };
   const isOwner = R && R.kind === 'owner';
   const isDry = !isOwner && !!S.R1 && runIsDry(job);
-  if (isOwner) Object.assign(info, { tagLine: S.R1.R.sumOwner(), notReadLines: S.rows.filter((r) => r.notRead).map((r) => S.R1.R.sumNotRead(r.file, r.page !== undefined ? r.page : r.image, r.detail)) });
+  if (isOwner) Object.assign(info, { tagLine: S.R1.R.sumOwner(), notReadLines: S.rows.filter((r) => r.notRead).map((r) => (r.refused ? `${r.file} page ${r.page !== undefined ? r.page : r.image}: ${r.detail}` : S.R1.R.sumNotRead(r.file, r.page !== undefined ? r.page : r.image, r.detail))) });
   if (isDry) Object.assign(info, { tagLine: S.R1.R.sumDry(), sheetPrefix: 'DRY RUN ' });
   let blob, saveName, save;
   try {

@@ -15,9 +15,14 @@ export const MAX_BATCH_DEFAULT = 8;   // /status.batch overrides it
 export const SONNET_BATCH = 6;        // parts per Sonnet-ticket /pages request (O2)
 export const BATCH_BYTES = 3500000;   // base64 bytes per /pages request (CTO 2)
 export const TEXT_PAGE_CHARS = 8000;  // a longer text page is never sent (O1)
+// A text part as multipart/form-data puts it on the wire: every CRLF, lone CR and lone LF becomes
+// CRLF (R3). The page measures and sends this string, so its byte count is the Worker gate's count.
+export const wireText = (s) => String(s).replace(/\r\n|\r|\n/g, '\r\n');
+export const wireBytes = (s) => new TextEncoder().encode(wireText(s)).length;
 
 export const IMG_LONG_EDGE = 1568;
 export const IMG_TOKEN_TARGET = 2464; // browser target; the Worker refuses > 2,500 by SOF
+export const IMG_TOKEN_CAP = 2500;    // the Worker's SOF gate (mirrored before sending, R3)
 export const IMG_MAX_BYTES = 450 * 1000;
 export const JPEG_QUALITIES = [0.8, 0.7, 0.6, 0.5];
 export const THUMB_PX = 96;
