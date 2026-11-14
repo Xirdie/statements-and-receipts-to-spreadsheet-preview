@@ -245,3 +245,15 @@ export function checkReceipt(r) {
   }
   return { status: 'unreconciled', failed: why !== null, check: why ? `FLAGGED: ${why}` : 'unreconciled', note };
 }
+
+// R4 (revisions/round-4.md change 1): what a read receipt page is, from its own record only.
+// A figure (subtotal, tax, tip, total) counts when it is a number other than 0.
+//   'noAmounts'          no figure counts, whatever is_receipt says (a contact or terms page)
+//   'notReceiptFigures'  at least one figure, and the model said is_receipt: false
+//   'receipt'            at least one figure, is_receipt not false: checkReceipt() applies
+export function receiptKind(out) {
+  const o = out && typeof out === 'object' ? out : {};
+  const any = ['subtotal', 'tax', 'tip', 'total'].some((k) => { const c = toCents(o[k]); return c !== null && c !== 0; });
+  if (!any) return 'noAmounts';
+  return o.is_receipt === false ? 'notReceiptFigures' : 'receipt';
+}

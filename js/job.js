@@ -2,7 +2,8 @@
 // pages; plan.md § Token), the free preview (column parser + chain on text pages), the AI
 // results folded back into statements/receipts, the chain re-run (reconcile.js, the one
 // shared copy), the rerun list (image pages only, D9) and the output rows.
-import { reconcileStatement, checkReceipt } from './reconcile.js';
+import { reconcileStatement, checkReceipt, receiptKind } from './reconcile.js';
+import { T } from './copy.js';
 // column-parser.js runs in its Web Worker; the main thread loads it only for AI dates and the
 // no-Worker fallback (keeps it out of the first view, V5).
 let CP = null;
@@ -178,20 +179,106 @@ export function markNotRead(job, i, detail = null, refused = null) {
   target.notReadRefused = refused;
 }
 
+// ---------- receipts: classify each page, join no-amount pages (R4, revisions/round-4.md change 1) ----------
+// Per rc unit: B unread (NOT READ, too long, over allowance, failed validation) · X no amounts ·
+// Xf not a receipt with figures · R receipt (checkReceipt). In a PDF, a run of X pages joins the R
+// page just before it, else the R page just after it; B and Xf stop a run; images never join.
+const RC_FILL = ['vendor', 'date', 'currency', 'payment', 'card_last4'];
+const blank = (v) => v === null || v === undefined || String(v).trim() === '';
+const RC_CLASS = { receipt: 'R', noAmounts: 'X', notReceiptFigures: 'Xf' };
+
+function rcRow(o) {
+  return {
+    date: normDate(o.date, o.date_format), vendor: o.vendor ?? '', subtotal: num(o.subtotal), tax: num(o.tax), tip: num(o.tip), total: num(o.total),
+    currency: o.currency ?? '', payment: o.payment ?? '', card_last4: o.card_last4 ?? '', category: o.category_suggestion ?? '',
+  };
+}
+
+function classifyReceipts(job) {
+  const byRec = new Map();
+  for (const u of job.units) {
+    if (u.type !== 'rc') continue;
+    if (!byRec.has(u.rec)) byRec.set(u.rec, []);
+    byRec.get(u.rec).push(u);
+  }
+  for (const [rec, list] of byRec) {
+    const us = list.slice().sort((a, b) => a.page - b.page);
+    for (const u of us) {
+      u.joined = null; u.joinedUnits = null; u.filled = null; u.joinedTo = null; u.rcKind = null;
+      u.rcClass = u.notRead || u.tooLong || u.overAllowance || !u.out ? 'B' : RC_CLASS[receiptKind(u.out)];
+    }
+    if (rec.kind !== 'pdf') continue;
+    for (let a = 0; a < us.length; a++) {
+      if (us[a].rcClass !== 'X') continue;
+      let b = a;
+      while (b + 1 < us.length && us[b + 1].rcClass === 'X') b++;
+      const prev = us[a - 1];
+      const next = us[b + 1];
+      const host = prev && prev.rcClass === 'R' ? prev : next && next.rcClass === 'R' ? next : null;
+      if (host) {
+        host.joinedUnits = host.joinedUnits || [];
+        for (let k = a; k <= b; k++) { us[k].joinedTo = host; host.joinedUnits.push(us[k]); }
+      }
+      a = b;
+    }
+  }
+}
+
+// the host's empty text fields from the nearest joined page that is a receipt page (ties: the earlier page)
+function fillHost(u, row) {
+  const o = u.out || {};
+  const joined = (u.joinedUnits || []).slice().sort((a, b) => a.page - b.page);
+  u.joined = joined.map((j) => j.page);
+  u.filled = [];
+  for (const f of RC_FILL) {
+    if (!blank(o[f])) continue;
+    let best = null;
+    for (const j of joined) {
+      if (!j.out || j.out.is_receipt !== true || blank(j.out[f])) continue;
+      if (!best || Math.abs(j.page - u.page) < Math.abs(best.page - u.page)) best = j;
+    }
+    if (!best) continue;
+    if (f === 'date') row.date = normDate(best.out.date, best.out.date_format);
+    else row[f] = best.out[f];
+    u.filled.push({ field: f, page: best.page });
+  }
+}
+
 // Re-runs the chain over everything; returns the job summary.
 export function finalise(job) {
-  const sum = { statements: 0, receipts: 0, flaggedRows: 0, notReadPages: [], rerun: [], flaggedReceipts: 0, okReceipts: 0 };
+  const sum = { statements: 0, receipts: 0, flaggedRows: 0, notReadPages: [], rerun: [], flaggedReceipts: 0, okReceipts: 0, joinedPages: 0, noReceiptPages: 0 };
+  if (job.units.some((u) => u.type === 'rc')) classifyReceipts(job);
   for (const u of job.units) {
     if (u.type === 'rc') {
-      sum.receipts++;
-      if (u.notRead) { sum.notReadPages.push({ name: u.name, page: u.page }); u.row = null; continue; }
+      u.row = null; u.check = null;
+      if (u.joinedTo) { sum.joinedPages++; continue; } // no row, no count, never re-read
       const o = u.out || {};
-      const row = {
-        date: normDate(o.date, o.date_format), vendor: o.vendor ?? '', subtotal: num(o.subtotal), tax: num(o.tax), tip: num(o.tip), total: num(o.total),
-        currency: o.currency ?? '', payment: o.payment ?? '', card_last4: o.card_last4 ?? '', category: o.category_suggestion ?? '',
-      };
-      const c = u.tooLong || u.overAllowance ? { failed: true, check: u.tooLong ? CHECK_TOO_LONG : 'FLAGGED: over the AI re-read allowance', note: '' }
-        : (u.out ? checkReceipt(row) : { failed: true, check: 'FLAGGED: page output failed validation', note: '' });
+      if (u.rcClass === 'X' || u.rcClass === 'Xf') {
+        // its own row, never FLAGGED, outside the receipt counts
+        sum.noReceiptPages++;
+        const img = u.rec.kind !== 'pdf';
+        const notRec = o.is_receipt === false;
+        const row = rcRow(o);
+        row.category = ''; // the schema forces a category even on a contact page
+        if (u.rcClass === 'X') { row.subtotal = null; row.tax = null; row.tip = null; row.total = null; }
+        u.rcKind = notRec ? 'noReceipt' : 'noAmounts';
+        u.row = row;
+        u.check = { failed: false, check: notRec ? T.rcNoReceipt(img) : T.rcNoAmounts(img), note: u.rcClass === 'Xf' ? T.rcNoteNotReceiptFigs() : notRec ? T.rcNoteNotReceipt() : T.rcNoteNoAmounts() };
+        if (u.rcClass === 'X' && !notRec && u.kind === 'img' && !u.reread) sum.rerun.push(u.idx); // a receipt photo with no amounts read: its free re-read
+        continue;
+      }
+      sum.receipts++;
+      if (u.notRead) { sum.notReadPages.push({ name: u.name, page: u.page }); continue; }
+      const row = rcRow(o);
+      let c;
+      if (u.rcClass === 'R') {
+        u.rcKind = 'receipt';
+        fillHost(u, row);
+        c = checkReceipt(row);
+      } else {
+        c = u.tooLong || u.overAllowance ? { failed: true, check: u.tooLong ? CHECK_TOO_LONG : 'FLAGGED: over the AI re-read allowance', note: '' }
+          : { failed: true, check: 'FLAGGED: page output failed validation', note: '' };
+      }
       u.row = row; u.check = c;
       if (c.failed) { sum.flaggedReceipts++; if (u.kind === 'img' && !u.reread && u.out) sum.rerun.push(u.idx); } else sum.okReceipts++;
       continue;
@@ -237,8 +324,27 @@ function rawRows(job) {
   const rows = [];
   for (const u of job.units) {
     if (u.type === 'rc') {
+      if (u.joinedTo) continue; // R4: a joined page lives in its host's note
       if (u.notRead) { rows.push({ file: u.name, image: u.page, check: CHECK_NOT_READ, notRead: true, detail: u.notReadDetail || null, refused: u.notReadRefused || null }); continue; }
-      rows.push({ file: u.name, image: u.page, ...(u.row || {}), check: u.check ? u.check.check : 'unreconciled', note: u.check ? u.check.note : '', dry: !!u.dry });
+      const r = { file: u.name, image: u.page, ...(u.row || {}), check: u.check ? u.check.check : 'unreconciled', note: u.check ? u.check.note : '', dry: !!u.dry };
+      if (u.rcKind === 'receipt') {
+        r.rcKind = 'receipt';
+        r.joined = u.joined || [];
+        r.filled = u.filled || [];
+        if (r.joined.length) {
+          // the page range lives inside text (Excel never turns it into a date); `image` stays the host's number
+          const all = [u.page, ...r.joined];
+          const byPage = new Map();
+          for (const f of r.filled) { if (!byPage.has(f.page)) byPage.set(f.page, []); byPage.get(f.page).push(T.rcFieldWord(f.field)); }
+          const extra = [T.rcJoined(Math.min(...all), Math.max(...all), r.joined), ...[...byPage.keys()].sort((a, b) => a - b).map((pg) => T.rcFilled(byPage.get(pg), pg))].join(' ');
+          r.cellNote = extra;
+          r.note = r.note ? `${r.note} · ${extra}` : extra;
+        }
+      } else if (u.rcKind) {
+        r.rcKind = u.rcKind;
+        r.cellNote = (u.rec.kind === 'pdf' ? T.rcPagePrefix(u.page) : '') + r.note; // the prefix: the image column is hidden < 600 px
+      }
+      rows.push(r);
       continue;
     }
     const checks = (u.result && u.result.rows) || [];

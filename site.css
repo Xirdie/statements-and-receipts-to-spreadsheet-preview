@@ -141,6 +141,10 @@ label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
 .row--group th { background: var(--c-surface-2); text-align: left; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
 .cell-check { display: none; font-size: .8125rem; font-weight: 700; color: var(--c-flag-fg); white-space: normal; }
 .row--notread .cell-check { color: var(--c-notread-fg); }
+/* R4 2: a joined page's range, or why a page is not counted as a receipt; visible at every width */
+.cell-note { display: block; margin-top: 2px; font-size: .8125rem; color: var(--c-muted); white-space: normal; }
+/* a page with no receipt or no amounts: no tint, no rule; the words carry the meaning */
+.row--noreceipt .col-check, .row--noreceipt .cell-check { color: var(--c-muted); font-weight: 400; }
 .card__reasons { margin: 8px 0 0; padding-left: 1.2rem; font-size: .875rem; }
 .card__reasons li { margin-bottom: 4px; }
 .footer-contact a { display: inline-flex; align-items: center; min-height: 44px; }

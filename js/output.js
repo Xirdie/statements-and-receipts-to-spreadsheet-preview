@@ -77,7 +77,7 @@ function summaryAoa(job, info) {
     [T.sumRunDate(info.runDate)],
     [T.sumLegend()],
   ];
-  if (job.mode === 'rc') aoa.push([T.receiptsNote()]);
+  if (job.mode === 'rc') { aoa.push([T.receiptsNote()]); aoa.push([T.sumLegendRc()]); } // R4 3: the receipts legend
   aoa.push([]);
   if (job.mode === 'st') {
     aoa.push([T.sumColStatement(), T.sumColOpening(), T.sumColCredits(), T.sumColDebits(), T.sumColComputed(), T.sumColPrinted(), T.sumColDifference(), T.sumColStatus()]);
@@ -89,7 +89,7 @@ function summaryAoa(job, info) {
       aoa.push([u.name, money(l.opening), money(l.credits), money(l.debits), money(l.computed), money(l.printed), l.diff === null ? '' : money(l.diff), status]);
     }
   } else {
-    aoa.push([T.lineReceipts(job.summary.okReceipts, job.summary.receipts, job.summary.flaggedReceipts)]);
+    aoa.push([T.lineReceipts(job.summary.okReceipts, job.summary.receipts, job.summary.flaggedReceipts, job.summary.joinedPages, job.summary.noReceiptPages)]);
   }
   if (job.summary.notReadPages.length) {
     aoa.push([]);

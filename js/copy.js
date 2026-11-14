@@ -97,13 +97,29 @@ const COPY = {
   srLine: (o, c, d, comp, printed, status, off) => `Opening balance ${o}, plus credits ${c}, minus debits ${d}, equals ${comp}. ${printed ? `The statement says ${printed}.` : 'The statement prints no closing balance.'} ${status === 'reconciled' ? 'Reconciled.' : `Flagged${off ? `: off by ${off}` : ''}.`}`,
   lineCard: (rows, printed, ok, diff, name) => `Rows sum to ${rows} · statement's ${name === 'debits' ? 'debits' : 'charges'} total ${printed} · ${ok ? 'totals match' : `totals differ by ${diff}`}. No running balance, so each row can't be checked on its own.`, // qa #16
   lineNoBalance: () => 'Unreconciled (no running balance). This statement prints no balance to check the rows against; check the total yourself.',
-  lineReceipts: (ok, total, flagged) => `Unreconciled (receipts have no balance to check against). Subtotal + tax + tip = total on ${ok} of ${total} receipts; ${flagged} flagged.`,
+  lineReceipts: (ok, total, flagged, joined = 0, none = 0) => (total > 0
+    ? `Unreconciled (receipts have no balance to check against). Subtotal + tax + tip = total on ${ok} of ${total} receipts; ${flagged} flagged.`
+    : 'Unreconciled (receipts have no balance to check against). No receipt amounts were found.')
+    + (joined > 0 ? (joined === 1 ? ' 1 page has no amounts and is joined to its receipt.' : ` ${joined} pages have no amounts and are joined to their receipts.`) : '')
+    + (none > 0 ? (none === 1 ? " 1 page has no receipt amounts and isn't counted as a receipt." : ` ${none} pages have no receipt amounts and aren't counted as receipts.`) : ''), // R4 2
+  // R4 1-3: receipt pages with no receipt or no amounts (own rows) and pages joined to their receipt
+  rcNoReceipt: (img) => (img ? 'no receipt in this image' : 'no receipt on this page'),
+  rcNoAmounts: (img) => (img ? 'no amounts in this image' : 'no amounts on this page'),
+  rcNoteNotReceipt: () => 'No subtotal, tax, tip or total; read as not a receipt. Not counted as a receipt.',
+  rcNoteNoAmounts: () => 'No subtotal, tax, tip or total was read. Not counted as a receipt; if it is one, type its figures in from your file.',
+  rcNoteNotReceiptFigs: () => 'Read as not a receipt; the amounts are as read. Not counted as a receipt; check them against your file.',
+  rcJoined: (from, to, pages) => `Pages ${from}–${to}; ${pages.length === 1 ? `page ${pages[0]} has` : `pages ${andList(pages)} have`} no amounts.`,
+  rcFilled: (fields, page) => `${cap1(andList(fields))} from page ${page}.`,
+  rcFieldWord: (f) => ({ vendor: 'vendor', date: 'date', currency: 'currency', payment: 'payment', card_last4: 'card last four' }[f] || f),
+  rcPagePrefix: (p) => `Page ${p}: `,
   notReadRow: (page) => `NOT READ: page ${page}`,
   incomplete: (n) => `INCOMPLETE: ${n} ${s(n, 'page', 'pages')} not read`,
 
   // price box (S3) and returning buyers (S8)
   jobLine: (st, total, scan, text, fit) => `This job: ${st ? `${st} ${s(st, 'statement', 'statements')} · ` : ''}${total} ${s(total, 'page', 'pages')} (${scan} scanned, ${text} text) · ${fit}`, // qa #34: photos count as pages
-  jobLineReceipts: (n, fit) => `This job: ${n} ${s(n, 'receipt', 'receipts')} · ${fit}`,
+  jobLineReceipts: (pages, fit, files = pages) => (files === pages
+    ? `This job: ${pages} ${s(pages, 'receipt', 'receipts')} · ${fit}`
+    : `This job: ${pages} receipt pages in ${files} ${s(files, 'file', 'files')} · ${fit}`), // R4 4: a receipt PDF may run over two pages
   fitOne: () => 'fits the $9 job (60 scanned pages)',
   fitText: () => 'the $9 job: all rows, reconciliation check, XLSX + CSV', // CEO 11:4x: a text-only job
   fitOver: () => 'more than the $9 job covers: choose the 250-page pack ($29), the monthly plan ($19, 150 pages a month), or remove files',
@@ -199,6 +215,7 @@ const COPY = {
   sumModels: (m) => `Models: ${m}`,
   sumRunDate: (d) => `Run date: ${d}`,
   sumLegend: () => 'Status legend: ok = the row carries the balance forward · ok (re-read) = re-read once by a stronger model, now adds up · FLAGGED = does not add up, check it against your statement · NOT READ = the page could not be read · unreconciled = no running balance to check against',
+  sumLegendRc: () => "no receipt on this page / in this image = read as not a receipt · no amounts on this page / in this image = no subtotal, tax, tip or total was read · neither is flagged or counted as a receipt, and each page read still counts toward the job's pages · a page with no amounts next to a receipt in the same PDF is joined to that receipt (its note names the pages)", // R4 3
   sumColStatement: () => 'Statement', sumColOpening: () => 'Opening', sumColCredits: () => 'Credits', sumColDebits: () => 'Debits',
   sumColComputed: () => 'Computed closing', sumColPrinted: () => 'Printed closing', sumColDifference: () => 'Difference', sumColStatus: () => 'Status',
 

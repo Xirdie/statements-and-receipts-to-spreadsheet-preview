@@ -192,13 +192,16 @@ function rcRowsTable(rows, caption, detail = null) {
   for (const r of rows) {
     if (r.file !== lastFile) { lastFile = r.file; tb.append(h('tr', { class: 'row--group' }, h('th', { scope: 'rowgroup', colspan: String(head.length) }, r.file))); }
     const flagged = String(r.check || '').startsWith('FLAGGED');
-    const tr = h('tr', { class: flagged ? 'row--flagged' : r.check === 'NOT READ' ? 'row--notread' : null });
+    // R4: a page with no receipt or no amounts is its own row, never tinted like FLAGGED or NOT READ
+    const noReceipt = r.rcKind === 'noReceipt' || r.rcKind === 'noAmounts';
+    const tr = h('tr', { class: flagged ? 'row--flagged' : r.check === 'NOT READ' ? 'row--notread' : noReceipt ? 'row--noreceipt' : null });
     for (const k of head) {
       let v = r[k];
       if (['tax', 'total'].includes(k)) v = v === null || v === undefined ? '' : fmtCents(Math.round(Number(v) * 100));
       if (k === 'check' && r.dry && S.R1) v = `${S.R1.R.dryCheck()} · ${v}`;
       const cell = h('td', { class: `col-${k}` }, v === undefined || v === null ? '' : String(v));
       if (k === 'vendor' && r.check) cell.append(h('span', { class: 'cell-check' }, r.dry && S.R1 ? `${S.R1.R.dryCheck()} · ${r.check}` : r.check));
+      if (k === 'vendor' && r.cellNote) cell.append(h('span', { class: 'cell-note' }, r.cellNote)); // R4 2: joined pages / why not a receipt
       tr.append(cell);
     }
     tb.append(tr);
@@ -376,7 +379,7 @@ function jobLine(job) {
   else if (job.n === 0 && job.mode === 'st') fit = T.fitText();
   else if (job.n <= L.CAP.one) fit = T.fitOne();
   else fit = T.fitOver();
-  if (job.mode === 'rc') return T.jobLineReceipts(job.units.length, fit);
+  if (job.mode === 'rc') return T.jobLineReceipts(job.units.length, fit, new Set(job.units.map((u) => u.rec)).size); // R4 4: pages in files
   // photos are pages, not statements (qa #34)
   return T.jobLine(job.units.filter((u) => u.rec.kind === 'pdf').length, total, job.scanPages, job.textPages, fit);
 }
@@ -770,7 +773,7 @@ function done(gaveUp) {
         reasons.length ? h('ul', { class: 'card__reasons' }, reasons.map((r) => h('li', {}, reasonOf(r)))) : null));
     }
   } else {
-    out.append(h('div', { class: 'recon recon--text', dataset: { status: 'unreconciled' } }, h('p', {}, T.lineReceipts(sum.okReceipts, sum.receipts, sum.flaggedReceipts)), h('p', {}, chip(isDry ? 'dry' : 'unreconciled'))));
+    out.append(h('div', { class: 'recon recon--text', dataset: { status: 'unreconciled' } }, h('p', {}, T.lineReceipts(sum.okReceipts, sum.receipts, sum.flaggedReceipts, sum.joinedPages, sum.noReceiptPages)), h('p', {}, chip(isDry ? 'dry' : 'unreconciled'))));
   }
   if (sum.notReadPages.length) {
     out.append(h('p', { class: 'msg msg--notread run__incomplete' }, T.incomplete(sum.notReadPages.length)));
