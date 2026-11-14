@@ -28,7 +28,7 @@ export const JPEG_QUALITIES = [0.8, 0.7, 0.6, 0.5];
 export const THUMB_PX = 96;
 
 export const TEXT_ITEMS_MIN = 20;     // a page is "text" with >= 20 text items containing digits
-export const PREVIEW_ROWS = 15;       // D2
+export const PREVIEW_ROWS = 3;        // D2, amended round 5 (owner note): a 3-row sample behind 'Show'
 export const PLAN_PRESELECT_ABOVE = 20; // monthly pre-selected above 20 scanned pages (D20)
 
 export const STATUS_TIMEOUT_MS = 5000;

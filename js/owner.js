@@ -7,7 +7,8 @@ import { h } from './ui.js';
 
 export { R };
 
-// opts: {dry, owner, onUse(code) -> Promise<{text, kind}>, msg: {text, kind} | null}
+// opts: {dry, owner, onUse(code) -> Promise<{text, kind}>, msg: {text, kind} | null, open, onToggle(open)}
+// R5 2.2: one closed <details> line in the Price step; today's content inside, in today's order.
 export function reviewerBlock(opts) {
   const lines = [h('p', { class: 'reviewer__head' }, h('strong', {}, R.reviewerHead()))];
   if (opts.owner) lines.push(h('p', { class: 'reviewer__owner' }, R.reviewerOwner()));
@@ -33,10 +34,12 @@ export function reviewerBlock(opts) {
     b.disabled = false;
     input.value = '';
     say(m);
-    if (m && m.kind === 'ok') out.focus();
   });
   out.setAttribute('tabindex', '-1');
-  return h('div', { class: 'reviewer', id: 'reviewer', dataset: { dry: opts.dry ? 'yes' : 'no', owner: opts.owner ? 'yes' : 'no' } }, lines, form);
+  const box = h('details', { class: 'reviewer', id: 'reviewer', open: !!opts.open, dataset: { dry: opts.dry ? 'yes' : 'no', owner: opts.owner ? 'yes' : 'no' } },
+    h('summary', { id: 'reviewer-summary' }, R.reviewerSummary()), lines, form);
+  box.addEventListener('toggle', () => { if (opts.onToggle) opts.onToggle(box.open); });
+  return box;
 }
 
 // kind: 'owner' | 'dry'; mode: 'st' | 'rc'. Text, bordered, role="note", never animated.

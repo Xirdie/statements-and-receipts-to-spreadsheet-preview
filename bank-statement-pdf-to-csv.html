@@ -25,16 +25,28 @@
 <link rel="stylesheet" href="./site.css">
 <script src="./config.js"></script>
 </head>
-<body data-page="tool" data-mode-default="st">
+<body data-page="tool" data-view="landing" data-mode-default="st">
 <header class="site-header">
   <a class="skip-link" href="#tool">Skip to the converter</a>
   <a class="wordmark" href="./"><svg class="mark" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false"><path d="M8 4h9M11 8h6M6 12h11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 15.5h14M3 18h14" stroke="currentColor" stroke-width="1.5"/></svg><span class="wordmark__sum">Sum</span><span class="wordmark__line">line</span></a>
 </header>
 <main id="main">
   <h1>Bank statement PDF to CSV, read in your browser</h1>
-  <section id="tool" class="tool" data-state="input" data-mode="st" aria-labelledby="tool-legend" tabindex="-1">
+  <section id="tool" class="tool" data-state="input" data-step="files" data-mode="st" aria-labelledby="tool-legend" tabindex="-1">
+  <div class="stepbar" data-role="steps">
+    <nav class="steps" aria-label="Your job"><ol>
+      <li class="steps__item" data-step="files"><span class="steps__glyph" aria-hidden="true"></span><span class="steps__name">Files</span><span class="visually-hidden steps__done" hidden> done</span></li>
+      <li class="steps__item" data-step="preview"><span class="steps__glyph" aria-hidden="true"></span><span class="steps__name">Preview</span><span class="visually-hidden steps__done" hidden> done</span></li>
+      <li class="steps__item" data-step="price"><span class="steps__glyph" aria-hidden="true"></span><span class="steps__name">Price</span><span class="visually-hidden steps__done" hidden> done</span></li>
+      <li class="steps__item" data-step="run"><span class="steps__glyph" aria-hidden="true"></span><span class="steps__name">Convert</span><span class="visually-hidden steps__done" hidden> done</span></li>
+      <li class="steps__item" data-step="done"><span class="steps__glyph" aria-hidden="true"></span><span class="steps__name">Download</span><span class="visually-hidden steps__done" hidden> done</span></li>
+    </ol></nav>
+    <p class="steps__line small" aria-hidden="true"></p>
+    <button type="button" class="btn btn--quiet steps__back" id="step-back" hidden></button>
+  </div>
   <noscript><p class="msg msg--error" data-error="E32">Sumline reads your files inside your browser, so it needs JavaScript turned on.</p></noscript>
   <div class="phase phase--input" data-phase="input">
+    <h2 id="files-h" class="files__h" tabindex="-1">Your files</h2>
     <fieldset class="doc-toggle">
       <legend id="tool-legend">What are you converting?</legend>
       <label class="pill"><input type="radio" name="doctype" value="st" checked><span>Statements</span></label>
@@ -45,6 +57,7 @@
       <label for="file-input" class="dropzone__label">
         <span class="dropzone__sentence only-wide" data-for="st">Drop statement PDFs here, or</span>
         <span class="dropzone__sentence only-wide" data-for="rc" hidden>Drop receipt photos or PDFs here, or</span>
+        <span class="dropzone__sentence dropzone__more only-wide">Add more files, or</span>
         <span class="btn btn--primary dropzone__button only-wide">Choose files</span>
         <span class="btn btn--primary dropzone__button only-narrow">Choose PDFs or photos</span>
       </label>
@@ -54,6 +67,7 @@
     <p class="msg msg--note" id="photo-note" hidden>Photos are read as statement pages. Converting receipts? Switch to Receipts above.</p>
     <div class="intake-alerts" id="intake-alerts" role="alert" hidden></div>
     <ul class="file-list" id="file-list" hidden></ul>
+    <button type="button" class="btn btn--primary btn--cta step-next" id="to-preview" hidden>Continue to preview</button>
   </div>
   <div class="phase phase--preview" data-phase="preview" id="preview" hidden>
     <h2 id="preview-h" tabindex="-1">Your preview</h2>
@@ -61,8 +75,17 @@
     <div class="cards" id="cards"></div>
     <div class="scans" id="scans" hidden>
       <p class="scans__counts small" id="scan-counts"></p>
-      <ul class="thumb-grid" id="thumbs"></ul>
+      <details class="scans__thumbs" id="scan-thumbs">
+        <summary id="scan-summary"></summary>
+        <ul class="thumb-grid" id="thumbs"></ul>
+      </details>
     </div>
+    <p class="preview__job" id="preview-job"></p>
+    <div class="preview-alerts" id="preview-alerts"></div>
+    <button type="button" class="btn btn--primary btn--cta step-next" id="to-price" hidden>Continue to payment</button>
+  </div>
+  <div class="phase phase--price" data-phase="price" id="price" hidden>
+    <h2 id="price-h" tabindex="-1">Price and payment</h2>
     <div class="job-alerts" id="job-alerts"></div>
     <div class="pricebox" id="pricebox"></div>
     <div class="pay-panel" id="pay-panel" role="status" hidden></div>
@@ -101,7 +124,7 @@
   <section class="benefits" aria-labelledby="benefits-h">
     <h2 id="benefits-h">Why Sumline</h2>
     <ul class="benefits__list">
-      <li class="benefit"><h3>Checked, not just converted.</h3><p>Every row is carried forward against the balance printed on your statement. A page that doesn't add up is re-read free by a stronger model, and anything still off is flagged in the file, never silently wrong.</p></li>
+      <li class="benefit"><h3>Checked, not just converted.</h3><p>Every amount is checked against the running balance printed on your statement; a page that doesn't add up is re-read free by a stronger model, and anything still off is flagged in the file. The check catches wrong amounts, not a misread date or description or an extra line, so glance over those before you rely on the file.</p></li>
       <li class="benefit"><h3>See it before you pay.</h3><p>Text PDFs are read in your browser and previewed right away with the balance check. Scanned pages are counted and priced exactly: $9 for one upload of up to 60 scanned pages, no subscription unless you want one.</p></li>
       <li class="benefit"><h3>Your files stay in your tab.</h3><p>No account and no upload folder. Text PDFs that add up never leave your device; your files and page images are cleared when you download.</p></li>
     </ul>
@@ -165,6 +188,6 @@
 <script src="./assets/motion.js"></script>
 <script type="module" src="./js/app.js"></script>
 <style>#studio-preview{position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#111;color:#fff;font:13px/1.4 system-ui,sans-serif;padding:8px 14px;text-align:center;opacity:.93}#studio-preview code{color:#9cf}</style>
-<div id="studio-preview">Preview build 5 - not public - purchases disabled. Notes: <code>studio.py feedback statements-and-receipts-to-spreadsheet "..."</code> &middot; approve: <code>studio.py approve statements-and-receipts-to-spreadsheet</code></div>
+<div id="studio-preview">Preview build 6 - not public - purchases disabled. Notes: <code>studio.py feedback statements-and-receipts-to-spreadsheet "..."</code> &middot; approve: <code>studio.py approve statements-and-receipts-to-spreadsheet</code></div>
 </body>
 </html>

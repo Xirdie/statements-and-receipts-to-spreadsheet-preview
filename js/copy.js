@@ -78,8 +78,11 @@ const COPY = {
   previewNote: () => 'Read by code in your browser. No AI was used for this preview.',
   period: (a, b) => `Statement period ${a} to ${b}`,
   mixedNote: (n) => `${n} scanned ${s(n, 'page', 'pages')} in this file ${s(n, 'is', 'are')} read by the AI reader in the paid run; the balance check runs then.`, // gap (mixed PDF)
-  showRows: (n) => (n >= 15 ? 'Show the first 15 rows' : `Show the first ${n} ${s(n, 'row', 'rows')}`),
-  rowsCaption: (name) => `First rows of ${name}`,
+  showRows: (n) => `Show ${n} sample ${s(n, 'row', 'rows')}`, // R5 3.3 (D2 amended)
+  showRowsWhy: (n) => `Show ${n} sample ${s(n, 'row', 'rows')} and why it's flagged`, // R5 3.3
+  rowsCaption: (name) => `Sample rows of ${name}`, // R5 3.3
+  showPages: (n) => `Show the ${n} page ${s(n, 'image', 'images')}`, // R5 3.3
+  showReceipts: (n) => `Show the ${n} receipt ${s(n, 'image', 'images')}`, // R5 3.3
   needAi: (n) => `${n} ${s(n, 'row needs', 'rows need')} the AI reader (included in the paid run)`,
   thumbAlt: (page, name) => `Page ${page} of ${name}`,
   scanCounts: (scan, text) => `${scan} scanned ${s(scan, 'page', 'pages')}${text ? ` · ${text} text ${s(text, 'page', 'pages')} (free, not counted)` : ''}`,
@@ -114,6 +117,19 @@ const COPY = {
   rcPagePrefix: (p) => `Page ${p}: `,
   notReadRow: (page) => `NOT READ: page ${page}`,
   incomplete: (n) => `INCOMPLETE: ${n} ${s(n, 'page', 'pages')} not read`,
+
+  // R5 3.1-3.2: the job view, one step at a time (revisions/round-5.md)
+  filesH2: () => 'Your files',
+  addMore: () => 'Add more files, or',
+  toPreview: () => 'Continue to preview',
+  toPrice: (owned) => (owned ? 'Continue' : 'Continue to payment'),
+  priceH2: () => 'Price and payment',
+  backFiles: () => 'Back to files',
+  backPreview: () => 'Back to preview',
+  stepsLabel: () => 'Your job',
+  stepNames: () => ['Files', 'Preview', 'Price', 'Convert', 'Download'],
+  stepLine: (i, n, name) => `Step ${i} of ${n} · ${name}`,
+  stepDone: () => 'done',
 
   // price box (S3) and returning buyers (S8)
   jobLine: (st, total, scan, text, fit) => `This job: ${st ? `${st} ${s(st, 'statement', 'statements')} · ` : ''}${total} ${s(total, 'page', 'pages')} (${scan} scanned, ${text} text) · ${fit}`, // qa #34: photos count as pages

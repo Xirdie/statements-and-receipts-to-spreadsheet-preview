@@ -1,8 +1,10 @@
 // Sumline page state machine (S1-S9): input -> reading -> preview -> checkout -> running ->
 // done | failed, on index.html, the SEO pages and paid.html (data-page="paid": S5, then the
 // tool when no other tab answers within 2 s). Every visible string comes from copy.js (T).
-// Polish hooks: #tool[data-state], .phase[data-phase], .recon / .chip / .row--flagged /
+// Polish hooks: #tool[data-state], #tool[data-step], .phase[data-phase], .recon / .chip / .row--flagged /
 // .row--notread / .pay-panel / .disclosure class names; no animation lives here.
+// R5 (revisions/round-5.md 3.1-3.3): body[data-view="landing|job"]; the job view shows one step at a time
+// (Files, Preview, Price, Convert, Download; paid.html has no Price step) with the step bar, Back and history.
 import { T } from './copy.js';
 import * as L from './limits.js';
 import { cfg, call, sleep, runtime } from './net.js';
@@ -39,6 +41,9 @@ const S = {
   owned: null, ownedLoading: false, ownedGen: 0,
   owner: { code: null, at: 0, left: null, cap: null, reset: null, locked: false, msg: null }, // R1: in memory only
   R1: null, reviewerMsg: null, // owner.js once /status says dry or owner
+  reviewerOpen: false, reviewerOpenedFor: null, // R5 2.2: the closed reviewer line's open state
+  view: 'landing', step: 'files', // R5 3.1: the landing (pitch) or the job view, and the job's step
+  openRows: new Set(), // R5 3.3: the statements whose "Show 3 sample rows" the buyer opened
   pending: null, // {kind, at} after a checkout click in this tab
   hiddenSince: false,
   paid: null,    // paid.html: {sid, kind, cap, left, reset}
@@ -50,12 +55,137 @@ const els = {
   file: $('#file-input'), drop: $('#dropzone'), status: $('#read-status'), photo: $('#photo-note'),
   alerts: $('#intake-alerts'), list: $('#file-list'),
   preview: $('#preview'), previewH: $('#preview-h'), cards: $('#cards'), scans: $('#scans'), scanCounts: $('#scan-counts'),
-  thumbs: $('#thumbs'), jobAlerts: $('#job-alerts'), price: $('#pricebox'), pay: $('#pay-panel'),
+  thumbs: $('#thumbs'), scanThumbs: $('#scan-thumbs'), scanSummary: $('#scan-summary'),
+  jobAlerts: $('#job-alerts'), price: $('#pricebox'), pay: $('#pay-panel'),
   run: $('#run'), runH: $('#run-h'), runBody: $('#run-body'),
+  filesH: $('#files-h'), toPreview: $('#to-preview'), previewJob: $('#preview-job'), previewAlerts: $('#preview-alerts'),
+  toPrice: $('#to-price'), priceH: $('#price-h'), steps: $('[data-role="steps"]'), back: $('#step-back'),
 };
 
 const setState = (s) => { if (tool) tool.dataset.state = s; };
 const stateIs = (...s) => tool && s.includes(tool.dataset.state);
+
+// ---------------------------------------------------------------- the job view (R5 3.1, 3.2)
+// One [data-phase] is visible per step. History: a forward move between Files, Preview and Price
+// pushes {sumline: step} with the URL unchanged (Ruling R5-a: no URL argument, never a goal);
+// Convert and Download replace the entry; Back never leaves a running job or an unsaved result.
+const STEPS = PAGE === 'paid' ? ['files', 'preview', 'run', 'done'] : ['files', 'preview', 'price', 'run', 'done'];
+const PHASE_OF = { files: 'input', preview: 'preview', price: 'price', run: 'run', done: 'run' };
+const PAY_ERRORS = /^E(1[89]|2[0-4]|3[3-6])$/; // backToPreview() shows the Price step for these
+// this document's history entries as far as the page knows them (used by the Back button only)
+const hist = { list: [null], idx: 0, expect: null };
+const hasFiles = () => !!(S.job || (intake && intake.files.length));
+
+function pushStep(step) {
+  try { history.pushState({ sumline: step }, ''); } catch (e) { /* history blocked */ }
+  hist.list = hist.list.slice(0, hist.idx + 1);
+  hist.list.push(step);
+  hist.idx = hist.list.length - 1;
+}
+function replaceStep(step) {
+  try { history.replaceState(step ? { sumline: step } : null, ''); } catch (e) { /* history blocked */ }
+  hist.list[hist.idx] = step;
+}
+// goal() (analytics.js, unchanged) adds one entry with the same state; the page notes it here
+function notedGoalEntry() { const cur = hist.list[hist.idx]; hist.list = hist.list.slice(0, hist.idx + 1); hist.list.push(cur); hist.idx++; }
+
+function headingOf(step) {
+  return step === 'files' ? els.filesH : step === 'preview' ? els.previewH : step === 'price' ? els.priceH : els.runH;
+}
+function settle(step) {
+  focusHeading(headingOf(step));
+  try { tool.scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' }); } catch (e) { tool.scrollIntoView(); }
+}
+function pauseVideos() { document.querySelectorAll('video').forEach((v) => { if (!v.paused) v.pause(); }); }
+
+// how: 'push' | 'replace' | 'none'; focus: move focus to the step's H2 when the step changes
+function go(step, how = 'push', focus = true) {
+  if (PAGE === 'paid' && step === 'price') step = 'preview';
+  const changed = step !== S.step || S.view !== 'job';
+  if (S.view !== 'job') pauseVideos();
+  S.view = 'job';
+  S.step = step;
+  if (how === 'push' && changed) pushStep(step);
+  else if (how === 'replace') replaceStep(step);
+  renderChrome();
+  if (changed && focus) settle(step);
+}
+function toLanding() {
+  S.view = 'landing';
+  S.step = 'files';
+  renderChrome();
+}
+// the step bar's Back: to the entry this tab pushed for that step, else this entry becomes it
+function navBack(target) {
+  for (let j = hist.idx - 1; j >= 0; j--) {
+    if (hist.list[j] === null) break;
+    if (hist.list[j] === target) { hist.expect = j; history.go(j - hist.idx); return; }
+  }
+  go(target, 'replace');
+}
+function changePlan() { S.pending = null; setState('preview'); renderPreview(); go('price', 'none'); focusHeading(els.priceH); }
+
+function onPop(e) {
+  const s = (e.state && e.state.sumline) || null;
+  let j = hist.expect;
+  hist.expect = null;
+  if (j === null || hist.list[j] !== s) {
+    const ls = hist.list, i = hist.idx;
+    j = ls[i] === s ? i : ls[i - 1] === s ? i - 1 : ls[i + 1] === s ? i + 1 : ls.lastIndexOf(s, i);
+    if (j < 0) j = ls.indexOf(s, i);
+  }
+  if (j >= 0) hist.idx = j; else { hist.list = [s]; hist.idx = 0; }
+  if (!tool || (PAGE === 'paid' && tool.hidden)) return;
+  if (s && s === S.step && S.view === 'job') return; // the step already shown (e.g. goal()'s entry)
+  // a paid run or an unsaved result is never left by Back
+  if (stateIs('running') || (stateIs('done', 'failed') && (S.step === 'run' || S.step === 'done'))) { pushStep(S.step === 'done' ? 'done' : 'run'); return; }
+  if (!s) { if (PAGE === 'paid') go('files', 'none'); else toLanding(); return; }
+  if (!hasFiles()) { replaceStep(null); if (PAGE === 'paid') go('files', 'none'); else toLanding(); return; }
+  if (s === 'files' || s === 'preview' || s === 'price') { go(s !== 'files' && !S.job ? 'files' : s, 'none'); return; }
+  go(S.job ? 'preview' : 'files', 'replace'); // a run / done entry with no run under way
+}
+
+// Everything that follows the view and the step: phases, step bar, Back, the "Continue" buttons.
+function renderChrome() {
+  if (!tool) return;
+  body.dataset.view = S.view;
+  tool.dataset.step = S.step;
+  const phase = PHASE_OF[S.step];
+  tool.querySelectorAll('[data-phase]').forEach((el) => { el.hidden = el.dataset.phase !== phase; });
+  tool.dataset.files = intake && intake.files.length ? 'yes' : 'no';
+  const job = S.job;
+  if (els.toPreview) {
+    els.toPreview.hidden = !(job && S.step === 'files' && !(intake && intake.busy) && stateIs('preview', 'checkout'));
+    els.toPreview.disabled = S.building;
+  }
+  if (els.toPrice) {
+    const over = job ? overLimits(job) : null;
+    els.toPrice.hidden = !job;
+    els.toPrice.textContent = T.toPrice(!!(job && usablePurchase(job)));
+    els.toPrice.disabled = !!over || S.building;
+    if (over) els.toPrice.setAttribute('aria-describedby', 'preview-alerts'); else els.toPrice.removeAttribute('aria-describedby');
+  }
+  const f = $('#run-files');
+  if (f) f.hidden = !(job && (S.step === 'run' || S.step === 'done'));
+  if (!els.steps) return;
+  const names = T.stepNames().filter((n, i) => !(PAGE === 'paid' && i === 2));
+  const at = STEPS.indexOf(S.step);
+  els.steps.querySelectorAll('li[data-step]').forEach((li) => {
+    const i = STEPS.indexOf(li.dataset.step);
+    if (i === at) li.setAttribute('aria-current', 'step'); else li.removeAttribute('aria-current');
+    li.dataset.done = i < at ? 'yes' : 'no';
+    const d = li.querySelector('.steps__done');
+    if (d) d.hidden = !(i < at);
+  });
+  const line = els.steps.querySelector('.steps__line');
+  if (line) line.textContent = T.stepLine(at + 1, STEPS.length, names[at]);
+  const b = els.back;
+  if (b) {
+    const label = S.step === 'preview' ? T.backFiles() : S.step === 'price' ? (stateIs('checkout') ? T.changePlan() : T.backPreview()) : '';
+    b.hidden = !label;
+    b.textContent = label;
+  }
+}
 
 // ---------------------------------------------------------------- intake
 let intake = null;
@@ -70,20 +200,23 @@ async function ensureIntake() {
 }
 
 function wireInput() {
-  els.file.addEventListener('change', async () => { const fl = [...els.file.files]; els.file.value = ''; if (fl.length) (await ensureIntake()).add(fl); });
+  els.file.addEventListener('change', async () => { const fl = [...els.file.files]; els.file.value = ''; if (fl.length) { enterJob(); (await ensureIntake()).add(fl); } });
   const zone = els.drop;
   const on = (e) => { e.preventDefault(); zone.dataset.drag = 'on'; };
   const off = () => { zone.dataset.drag = 'off'; };
   zone.addEventListener('dragenter', on);
   zone.addEventListener('dragover', on);
   zone.addEventListener('dragleave', off);
-  zone.addEventListener('drop', (e) => { e.preventDefault(); off(); if (!stateIs('input', 'preview')) return; if (e.dataTransfer && e.dataTransfer.files.length) { const fl = [...e.dataTransfer.files]; ensureIntake().then((x) => x.add(fl)); } });
+  zone.addEventListener('drop', (e) => { e.preventDefault(); off(); if (!stateIs('input', 'preview')) return; if (e.dataTransfer && e.dataTransfer.files.length) { const fl = [...e.dataTransfer.files]; enterJob(); ensureIntake().then((x) => x.add(fl)); } });
   for (const r of tool.querySelectorAll('input[name="doctype"]')) {
     r.checked = r.value === S.mode;
     r.addEventListener('change', () => { if (!r.checked) return; setMode(r.value); });
   }
   setMode(S.mode);
 }
+
+// R5 3.1: a file picked or dropped on the landing opens the job view at Files
+function enterJob() { if (S.view !== 'job') go('files', 'push'); }
 
 function setMode(m) {
   S.mode = m === 'rc' ? 'rc' : 'st';
@@ -121,7 +254,8 @@ async function rebuild() {
   if (stateIs('checkout')) { renderPreview(); return; }
   setState('preview');
   renderPreview();
-  if (first) focusHeading(els.previewH);
+  // R5 3.2: the first build moves to Preview by itself; afterwards "Continue to preview"
+  if (first && S.view === 'job' && S.step === 'files') go('preview', 'push');
   loadOwned();
 }
 
@@ -212,12 +346,11 @@ function rcRowsTable(rows, caption, detail = null) {
       h('thead', {}, h('tr', {}, head.map((k) => h('th', { scope: 'col', class: `col-${k}` }, T['col_' + k]())))), tb));
 }
 
+// R5 3.3: per statement the name, period and the full reconciliation line stay up front; the 3-row
+// sample, the flag reasons and the E11 notes sit behind a closed "Show 3 sample rows" on every card.
 function renderCards(job) {
   clear(els.cards);
   if (job.mode !== 'st') return;
-  let first = true;
-  const narrow = window.matchMedia && matchMedia('(max-width: 599px)').matches;
-  const many = job.units.filter((u) => u.preview).length > 1;
   for (const u of job.units) {
     if (!u.preview) continue;
     const p = u.parsed || {};
@@ -227,22 +360,30 @@ function renderCards(job) {
       h('h3', { class: 'card__title' }, h('span', { class: 'file__name', title: u.name }, u.name)),
       p.period ? h('p', { class: 'small muted' }, T.period(p.period.start, p.period.end)) : null,
       mixed ? h('p', { class: 'small muted' }, T.mixedNote(u.pages.filter((x) => !x.isText).length)) : reconBlock(res));
-    if (u.preview.rows.length) {
-      const d = h('details', { class: 'card__rows', open: first && !(narrow && many) },
-        h('summary', {}, T.showRows(Math.min(L.PREVIEW_ROWS, u.preview.rows.length))),
-        rowsTable(u.preview.rows.slice(0, L.PREVIEW_ROWS), T.rowsCaption(u.name)));
-      card.append(d);
-    }
-    if (!mixed && u.preview.reasons && u.preview.reasons.length) {
-      card.insertBefore(h('ul', { class: 'card__reasons' }, u.preview.reasons.map((x) => h('li', {}, T.flagReason(x.reason, x.page, false), ' ', x.tooLong ? T.tooLongNote() : T.previewReread()))), card.querySelector('.card__rows'));
-    }
     if (u.preview.needAi) card.append(h('p', { class: 'small' }, T.needAi(u.preview.needAi)));
-    for (const pg of u.preview.noRows) card.append(h('p', { class: 'small msg msg--note', dataset: { error: 'E11' } }, T.E11(pg, u.name)));
+    const reasons = !mixed && u.preview.reasons && u.preview.reasons.length
+      ? h('ul', { class: 'card__reasons' }, u.preview.reasons.map((x) => h('li', {}, T.flagReason(x.reason, x.page, false), ' ', x.tooLong ? T.tooLongNote() : T.previewReread())))
+      : null;
+    const notes = u.preview.noRows.map((pg) => h('p', { class: 'small msg msg--note', dataset: { error: 'E11' } }, T.E11(pg, u.name)));
+    const n = Math.min(L.PREVIEW_ROWS, u.preview.rows.length);
+    if (n) {
+      const d = h('details', { class: 'card__rows', open: S.openRows.has(u.name) },
+        h('summary', {}, reasons ? T.showRowsWhy(n) : T.showRows(n)),
+        rowsTable(u.preview.rows.slice(0, n), T.rowsCaption(u.name)), reasons, notes);
+      d.addEventListener('toggle', () => { if (d.open) S.openRows.add(u.name); else S.openRows.delete(u.name); });
+      card.append(d);
+    } else card.append(reasons, ...notes);
     els.cards.append(card);
-    first = false;
   }
 }
 
+// R5 3.3: the counts line stays up front; the page images sit behind a closed "Show the n page images"
+// and are created on its first open, not before.
+let thumbList = [];
+function fillThumbs() {
+  if (!els.scanThumbs || !els.scanThumbs.open || els.thumbs.childElementCount) return;
+  for (const t of thumbList) els.thumbs.append(h('li', { class: 'thumb' }, h('img', { src: t.src, alt: t.alt, width: '72', height: '96', loading: 'lazy', decoding: 'async' })));
+}
 function renderScans(job) {
   clear(els.thumbs);
   const thumbs = [];
@@ -250,9 +391,12 @@ function renderScans(job) {
     if (u.type === 'rc') { const pg = u.rec.pages.find((x) => x.page === u.page); if (pg && pg.thumb) thumbs.push({ src: pg.thumb, alt: T.thumbAlt(u.page, u.name) }); continue; }
     for (const p of u.pages) if (!p.isText && p.thumb) thumbs.push({ src: p.thumb, alt: T.thumbAlt(p.page, u.name) });
   }
-  for (const t of thumbs) els.thumbs.append(h('li', { class: 'thumb' }, h('img', { src: t.src, alt: t.alt, width: '72', height: '96', loading: 'lazy', decoding: 'async' })));
-  show(els.scans, thumbs.length > 0);
+  thumbList = thumbs;
+  show(els.scans, thumbs.length > 0 || job.scanPages > 0);
   els.scanCounts.textContent = job.scanPages ? (job.mode === 'rc' ? T.receiptCounts(job.scanPages, job.textPages) : T.scanCounts(job.scanPages, job.textPages)) : '';
+  if (els.scanSummary) els.scanSummary.textContent = job.mode === 'rc' ? T.showReceipts(thumbs.length) : T.showPages(thumbs.length);
+  if (els.scanThumbs) els.scanThumbs.hidden = thumbs.length === 0;
+  fillThumbs();
 }
 
 // The plan the job fits, or null when it fits none.
@@ -263,6 +407,13 @@ function fits(kind, job) {
 }
 
 function needsProvider(job) { return job.n > 0 || job.t > 0; }
+
+// E8 / E9 sit in the Preview step beside a disabled "Continue to payment" (R5 3.2)
+function overLimits(job) {
+  if (job.n > L.MAX_PAGES_IMG) return { code: 'E8', text: T.E8(job.n) };
+  if (job.textPages > L.MAX_PAGES_TEXT) return { code: 'E9', text: T.E9(job.textPages) };
+  return null;
+}
 
 function blockReason(job) {
   if (S.status.state === 'unreachable') return { code: 'E14', text: T.E14(), retry: true };
@@ -294,6 +445,7 @@ function resumableOneOff() {
 
 function renderPrice(job) {
   const box = els.price;
+  const ctaFocus = !!(document.activeElement && document.activeElement.id === 'cta'); // kept across re-renders (R5 2.2)
   clear(box);
   if (PAGE === 'paid') { renderPaidCta(job); return; }
   const block = blockReason(job);
@@ -353,24 +505,38 @@ function renderPrice(job) {
     const reasonId = 'cta-reason';
     if (disabled) cta.setAttribute('aria-describedby', reasonId);
     box.append(cta);
-    const reviewer = (S.status.mode === 'dry' || S.status.owner) && S.R1;
-    if (disabled && !block && noLink && reviewer) cta.setAttribute('aria-describedby', 'reviewer');
+    const reviewer = reviewerOn();
+    if (disabled && !block && noLink && reviewer) cta.setAttribute('aria-describedby', 'reviewer-summary');
     const why = block ? block.text : noLink && !reviewer ? T.checkoutOff() : '';
     box.append(h('p', { class: 'pricebox__reason small', id: reasonId, hidden: !why }, why));
     box.append(h('p', { class: 'pricebox__secure small muted' }, T.underCta()));
   }
+  if (ctaFocus && cta && !cta.disabled) cta.focus({ preventScroll: true });
   if (resume) {
     box.append(h('button', { type: 'button', class: 'btn btn--block pricebox__resume', onclick: () => runJob({ sid: resume.sid, kind: 'one', reissue: true }) }, T.resumeOne()));
   }
-  // R1 3a: the reviewer line and code field, only on a dry or owner preview
-  const st = S.status;
-  if ((st.mode === 'dry' || st.owner) && S.R1) {
+  // R1 3a / R5 2.1-2.2: the reviewer line, one closed <details> in the Price step, only on the studio's
+  // preview copy (config.js STUDIO_PREVIEW) whose Worker says dry or owner; it opens itself on an error
+  if (reviewerOn()) {
+    const st = S.status;
+    if (S.reviewerMsg && S.reviewerMsg.kind === 'error' && S.reviewerOpenedFor !== S.reviewerMsg) { S.reviewerOpen = true; S.reviewerOpenedFor = S.reviewerMsg; }
     box.append(S.R1.reviewerBlock({
-      dry: st.mode === 'dry', owner: !!st.owner, msg: S.reviewerMsg,
-      onUse: async (raw) => { const m = await applyCode(raw); S.reviewerMsg = m; setTimeout(() => renderPreview(), 0); return m; },
+      dry: st.mode === 'dry', owner: !!st.owner, msg: S.reviewerMsg, open: S.reviewerOpen,
+      onToggle: (open) => { S.reviewerOpen = open; },
+      onUse: async (raw) => {
+        const m = await applyCode(raw);
+        S.reviewerMsg = m;
+        if (m && m.kind === 'ok') S.reviewerOpen = false;
+        setTimeout(() => { renderPreview(); if (m && m.kind === 'ok') { const c = $('#cta'); if (c) c.focus(); } }, 0);
+        return m;
+      },
     }));
   }
 }
+
+// R5 2.1: two independent gates: the page's own preview flag AND the Worker's dry / owner mode.
+// owner.js still loads on the Worker's word alone, so the DRY RUN / OWNER TEST labels never depend on the flag.
+function reviewerOn() { const st = S.status; return cfg().preview && (st.mode === 'dry' || !!st.owner) && !!S.R1; }
 
 function jobLine(job) {
   const total = job.scanPages + job.textPages;
@@ -387,14 +553,25 @@ function jobLine(job) {
 function renderPreview() {
   if (!tool) return;
   const job = S.job;
-  const visible = !!job && stateIs('preview', 'checkout');
-  show(els.preview, visible || stateIs('reading') && !!S.job);
-  if (!job) { clear(els.cards); clear(els.thumbs); clear(els.price); clear(els.jobAlerts); return; }
+  if (!job) {
+    clear(els.cards); clear(els.thumbs); clear(els.price); clear(els.jobAlerts);
+    if (els.previewAlerts) clear(els.previewAlerts);
+    if (els.previewJob) els.previewJob.textContent = '';
+    renderChrome();
+    return;
+  }
   renderCards(job);
   renderScans(job);
+  if (els.previewJob) els.previewJob.textContent = jobLine(job);
+  if (els.previewAlerts) {
+    clear(els.previewAlerts);
+    const over = overLimits(job);
+    if (over) els.previewAlerts.append(h('p', { class: 'msg msg--error', role: 'alert', dataset: { error: over.code } }, over.text));
+  }
   renderPrice(job);
   show(els.price, !stateIs('checkout'));
   show(els.pay, stateIs('checkout'));
+  renderChrome();
 }
 
 // ---------------------------------------------------------------- status
@@ -441,6 +618,7 @@ function checkoutClick(kind) {
       h('button', { type: 'button', class: 'btn btn--primary', onclick: go }, T.continueCheckout())));
   });
   if (res !== 'tab') return;
+  notedGoalEntry(); // goal('checkout') added one same-state entry (integrations.md, accepted)
   S.pending = { kind, at: Date.now() };
   S.hiddenSince = false;
   setState('checkout');
@@ -460,7 +638,7 @@ function renderPay(abandoned) {
     abandoned ? h('p', { class: 'msg msg--note', dataset: { error: 'E13' } }, T.E13()) : null,
     h('div', { class: 'pay-panel__actions' },
       h('button', { type: 'button', class: 'btn', onclick: () => checkoutClick(S.pending ? S.pending.kind : S.selected) }, T.reopenCheckout()),
-      h('button', { type: 'button', class: 'btn btn--quiet', onclick: () => { S.pending = null; setState('preview'); renderPreview(); focusHeading(els.previewH); } }, T.changePlan())));
+      h('button', { type: 'button', class: 'btn btn--quiet', onclick: changePlan }, T.changePlan())));
 }
 
 // A purchase code arrived (channel, storage event or visibility re-read) for this tab's checkout.
@@ -504,8 +682,6 @@ function guardLeave(on) { if (on) window.addEventListener('beforeunload', before
 // The input phase leaves the page (and the tab order) while a paid job runs or shows its
 // result; one line says what the job is (qa #11). It comes back on Clear now / Convert more.
 function showInput(on) {
-  const ph = tool.querySelector('[data-phase="input"]');
-  if (ph) ph.hidden = !on;
   let f = $('#run-files');
   if (!f) { f = h('p', { class: 'run__files small muted', id: 'run-files' }); els.runH.after(f); }
   const job = S.job;
@@ -515,12 +691,10 @@ function showInput(on) {
 
 function runShell() {
   setState('running');
-  show(els.preview, false);
-  show(els.run, true);
   showInput(false);
   els.runH.textContent = T.runH2();
   clear(els.runBody);
-  focusHeading(els.runH);
+  go('run', 'replace'); // Convert replaces the entry (R5 3.1)
 }
 
 const reportLink = () => h('button', { type: 'button', class: 'btn btn--link', onclick: () => openReport() }, T.reportLink());
@@ -533,7 +707,15 @@ function runError(code, text, actions = []) {
 }
 
 const btn = (label, fn, cls = 'btn') => h('button', { type: 'button', class: cls, onclick: fn }, label);
-const backToPreview = () => { show(els.run, false); showInput(true); S.run = null; setState(S.job ? 'preview' : 'input'); renderPreview(); focusHeading(S.job ? els.previewH : els.runH); };
+// R5 3.2: back to the Price step after a payment or code error (E18-E24, E33-E36), else to Preview
+const backToPreview = () => {
+  const err = els.runBody.querySelector('.run__error');
+  const code = err ? err.dataset.error : '';
+  S.run = null;
+  setState(S.job ? 'preview' : 'input');
+  renderPreview();
+  go(!S.job ? 'files' : PAY_ERRORS.test(code) ? 'price' : 'preview', 'replace');
+};
 
 function startError(r, sid, kind, retry) {
   const e = r.data && r.data.error;
@@ -825,7 +1007,8 @@ function done(gaveUp) {
   const after = h('div', { class: 'after', id: 'after-download', hidden: true });
   const err = h('div', { id: 'download-error' });
   out.append(fmtBox, dl, err, after);
-  focusHeading(els.runH);
+  if (S.step === 'done') focusHeading(els.runH);
+  go('done', 'replace'); // Download replaces the entry (R5 3.1)
 }
 
 function reasonOf(r) {
@@ -865,7 +1048,7 @@ async function finishRemaining(e) {
   const line = h('p', { class: 'run__line', 'aria-live': 'polite' }, '');
   R.ui = { progress, line, live: h('div', { class: 'run__rows' }) };
   els.runBody.append(progress, line, R.ui.live);
-  focusHeading(els.runH);
+  go('run', 'replace');
   // a NOT READ page is retried from scratch
   idx.forEach((i) => { const en = job.index[i]; const t = en.unit.type === 'rc' ? en.unit : en.page; t.notRead = false; });
   const res = await send(idx, R.ticket, 'h');
@@ -901,7 +1084,7 @@ async function download(fmt) {
     return;
   }
   save(blob, saveName);
-  if (R && !isOwner && !isDry) goal('download', R.kind); // test downloads are not conversions (R1, CTO)
+  if (R && !isOwner && !isDry) { goal('download', R.kind); notedGoalEntry(); } // test downloads are not conversions (R1, CTO)
   if (!S.downloaded) clearSources();
   S.downloaded = true;
   renderAfter(fmt);
@@ -939,9 +1122,10 @@ function clearEverything(say) {
   if (intake) intake.clearAll();
   S.job = null; S.run = null; S.rows = null; S.touched = false; S.packShown = false; S.buyOther = false;
   clear(els.runBody);
-  show(els.run, false);
   showInput(true);
   setState('input');
+  // R5 3.2: back to the landing view (paid.html: the Files step), focus on the toggle
+  if (PAGE === 'paid') { S.step = 'files'; replaceStep('files'); } else { replaceStep(null); S.view = 'landing'; S.step = 'files'; }
   renderPreview();
   if (PAGE === 'paid') { const w = $('#paid-wait'); if (w) w.hidden = true; }
   els.status.textContent = say ? T.clearedAll() : '';
@@ -1011,7 +1195,7 @@ async function paidInit() {
   });
   const already = purchases.get(sid);
   purchases.add({ sid, kind: d.kind });
-  if (!already) goal('paid', d.kind); // once per purchase code, not per reload (qa #22)
+  if (!already) { goal('paid', d.kind); notedGoalEntry(); } // once per purchase code, not per reload (qa #22)
   const keep = $('#paid-keep');
   if (keep) keep.textContent = d.kind === 'one' ? T.keepCodeOne() : T.keepCode(); // qa #33, CEO 11:4x
   if (already && already.claimed) { showClaimed(); return; }
@@ -1037,6 +1221,7 @@ async function paidInit() {
   clear(wait); wait.hidden = false;
   wait.append(h('p', {}, T.noAckLine()));
   show(tool, true);
+  go('files', 'replace', false); // R5 3.2: the job view at once (no landing pitch on paid.html)
   wireInput();
 }
 
@@ -1047,11 +1232,27 @@ function idleEngine() {
   if ('requestIdleCallback' in window) requestIdleCallback(go, { timeout: 4000 }); else setTimeout(go, 1500);
 }
 
+function wireSteps() {
+  // a reload keeps history.state but not the files: back to the landing view (R5 3.1)
+  try { if (history.state && history.state.sumline) history.replaceState(null, ''); } catch (e) { /* blocked */ }
+  window.addEventListener('popstate', onPop);
+  if (els.back) els.back.addEventListener('click', () => {
+    if (S.step === 'preview') navBack('files');
+    else if (S.step === 'price') { if (stateIs('checkout')) changePlan(); else navBack('preview'); }
+  });
+  if (els.toPreview) els.toPreview.addEventListener('click', () => { if (S.job) go('preview', 'push'); });
+  if (els.toPrice) els.toPrice.addEventListener('click', () => { if (S.job && !els.toPrice.disabled) go('price', 'push'); });
+  if (els.scanThumbs) els.scanThumbs.addEventListener('toggle', fillThumbs);
+  S.view = PAGE === 'paid' ? 'job' : 'landing';
+  renderChrome();
+}
+
 function init() {
   captureUtm();
   if (body.dataset.beacon === 'dynamic') loadBeacon();
   initFooter();
   if (!tool) return;
+  wireSteps();
   if (PAGE === 'paid') {
     show(tool, false);
     fetchStatus(false);

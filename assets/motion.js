@@ -1,6 +1,7 @@
 // Sumline polish (design.md § Polish V2): visual classes only, no behaviour. It marks a real
 // state change on #tool for the length of its reveal, so a re-render inside one state never
 // replays an animation; arms the hero once when it is below the fold; marks new file rows.
+// R5 3.5: a real step change (the visible [data-phase] changes) puts .m-step on #tool for 200 ms.
 // With JS off or reduced motion on, nothing here runs and every element is drawn complete.
 (function () {
   var rm = window.matchMedia ? matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
@@ -24,6 +25,22 @@
       else if (s === 'input' && (prev === 'done' || prev === 'failed')) flash('m-back', 400);
       prev = s;
     }).observe(tool, { attributes: true, attributeFilter: ['data-state'] });
+    // R5 3.5: Files, Preview and Price are phases of their own; Convert -> Download is one phase (no fade)
+    var phaseOf = { files: 'input', preview: 'preview', price: 'price', run: 'run', done: 'run' };
+    var prevPhase = phaseOf[tool.dataset.step] || 'input';
+    var prevView = document.body.dataset.view;
+    new MutationObserver(function () {
+      var ph = phaseOf[tool.dataset.step] || 'input';
+      var view = document.body.dataset.view;
+      if (ph !== prevPhase || (view === 'job' && prevView !== 'job')) flash('m-step', 200);
+      prevPhase = ph;
+      prevView = view;
+    }).observe(tool, { attributes: true, attributeFilter: ['data-step'] });
+    new MutationObserver(function () {
+      var view = document.body.dataset.view;
+      if (view === 'job' && prevView !== 'job') flash('m-step', 200);
+      prevView = view;
+    }).observe(document.body, { attributes: true, attributeFilter: ['data-view'] });
     var list = document.getElementById('file-list');
     if (list) {
       var seen = {};

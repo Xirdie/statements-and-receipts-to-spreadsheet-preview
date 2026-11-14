@@ -102,6 +102,32 @@ label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
 .file__password { padding: 8px 0 12px; }
 .file__password .input { max-width: 320px; }
 
+/* R5 3.1-3.2 (revisions/round-5.md): the landing is the pitch; the job view holds the tool alone, one
+   step at a time. The H1 stays in the outline (visually hidden, out of the layout). */
+body[data-page="tool"][data-view="job"] main > :not(#tool):not(h1) { display: none !important; }
+body[data-page="tool"][data-view="job"] main > h1 { position: fixed !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+body[data-view="landing"] #files-h { display: none; }
+#files-h { margin-top: .5rem; }
+.dropzone__more { display: none; }
+body[data-view="job"] #tool[data-files="yes"] .dropzone__sentence[data-for] { display: none; }
+body[data-view="job"] #tool[data-files="yes"] .dropzone__more { display: inline; }
+.step-next { margin-top: 16px; }
+.stepbar { display: none; }
+body[data-view="job"] .stepbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 8px 0 4px; }
+.steps { flex: 1 1 auto; min-width: 0; }
+.steps ol { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; }
+.steps__item { display: inline-flex; align-items: center; gap: 6px; color: var(--c-muted); font-size: .875rem; min-height: 28px; }
+.steps__item[data-done="yes"] { color: var(--c-text); }
+.steps__item[aria-current="step"] { color: var(--c-accent); font-weight: 700; }
+.steps__glyph { display: none; flex: none; width: 12px; height: 12px; background: currentColor; -webkit-mask: var(--g-check) center / contain no-repeat; mask: var(--g-check) center / contain no-repeat; }
+.steps__item[data-done="yes"] .steps__glyph { display: inline-block; }
+.steps__line { display: none; margin: 0; font-weight: 600; }
+.steps__back { flex: none; margin-left: auto; }
+.preview__job { font-weight: 600; margin: 16px 0 8px; }
+.scans__thumbs > summary { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; color: var(--c-accent); list-style: none; }
+.scans__thumbs > summary::-webkit-details-marker { display: none; }
+.scans__thumbs[open] > .thumb-grid { margin-top: 8px; }
+
 /* preview */
 .cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .card { min-width: 0; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--r-card); padding: 14px; }
@@ -216,6 +242,11 @@ label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
   .footer-links { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .formats .format { flex: 1 1 auto; }
   .after__actions .btn, .msg__actions .btn { flex: 1 1 100%; }
+  body[data-view="job"] .stepbar { display: block; }
+  .steps { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .steps__line { display: block; }
+  .steps__back { display: flex; width: 100%; margin: 8px 0 0; }
+  .steps__back[hidden] { display: none !important; }
 }
 
 /* ------------------------------------------------------------------------------------------
@@ -251,8 +282,8 @@ label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
 .pay-panel__pictogram { grid-column: 1; grid-row: 1 / span 2; width: 24px; height: 24px; margin-top: 2px; color: var(--c-accent); background: currentColor; -webkit-mask: var(--g-tabs) center / contain no-repeat; mask: var(--g-tabs) center / contain no-repeat; }
 .faq__item summary, .card__rows summary { justify-content: space-between; gap: 12px; list-style: none; }
 .faq__item summary::-webkit-details-marker, .card__rows summary::-webkit-details-marker { display: none; }
-.faq__item summary::after, .card__rows summary::after { content: ""; flex: none; width: 12px; height: 12px; background: currentColor; -webkit-mask: var(--g-chev) center / contain no-repeat; mask: var(--g-chev) center / contain no-repeat; transition: transform 160ms var(--ease-out); }
-.faq__item[open] > summary::after, .card__rows[open] > summary::after { transform: rotate(90deg); }
+.faq__item summary::after, .card__rows summary::after, .reviewer > summary::after, .scans__thumbs > summary::after { content: ""; flex: none; width: 12px; height: 12px; background: currentColor; -webkit-mask: var(--g-chev) center / contain no-repeat; mask: var(--g-chev) center / contain no-repeat; transition: transform 160ms var(--ease-out); }
+.faq__item[open] > summary::after, .card__rows[open] > summary::after, .reviewer[open] > summary::after, .scans__thumbs[open] > summary::after { transform: rotate(90deg); }
 #tool:has(#after-download:not([hidden])) #download-btn::before { content: ""; width: 16px; height: 16px; margin-right: 8px; flex: none; background: currentColor; -webkit-mask: var(--g-check) center / contain no-repeat; mask: var(--g-check) center / contain no-repeat; animation: m-wipe 240ms var(--ease-out) both; }
 .recon__line .recon__term--plus dt, .recon__line .recon__term--minus dt, .recon__line .recon__term--total dt { color: var(--c-muted); }
 
@@ -326,7 +357,10 @@ label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
 .run__rows > .run__row { animation: m-fade 160ms var(--ease-out); }
 .run__line, #run-body > .msg--note { animation: m-fade var(--dur-2) var(--ease-out); }
 .after__cleared { animation: m-fade var(--dur-2) var(--ease-out) var(--dur-2) both; }
-.disclosure, .disclosure *, [role="alert"], .msg--error { animation: none !important; }
+/* R5 3.5: a real step change (motion.js puts .m-step on #tool for 200 ms when the visible phase changes) */
+#tool.m-step [data-phase]:not([hidden]) > :not(.job-alerts):not(.intake-alerts):not(.preview-alerts):not(.pricebox):not(.msg):not([role="alert"]) { animation: m-fade var(--dur-2) var(--ease-out); }
+#tool.m-step .pricebox > :not(.reviewer):not(.msg):not([role="alert"]) { animation: m-fade var(--dur-2) var(--ease-out); }
+.disclosure, .disclosure *, [role="alert"], .msg--error, .reviewer, .reviewer * { animation: none !important; }
 
 /* type details: the wordmark reads as one word; table figures, dates and codes never break
    mid-token (the table scrolls inside its own box instead, § UX) */
@@ -340,7 +374,7 @@ label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
   .row--flagged td:first-child { box-shadow: none; border-left: 4px solid CanvasText; }
   .row--notread td:first-child { border-left: 4px dashed CanvasText; }
   .recon__term--total dd::after { border-color: CanvasText; }
-  .chip__glyph, .pay-panel__pictogram, .faq__item summary::after, .card__rows summary::after, #download-btn::before { forced-color-adjust: none; background: CanvasText; }
+  .chip__glyph, .pay-panel__pictogram, .faq__item summary::after, .card__rows summary::after, .reviewer > summary::after, .scans__thumbs > summary::after, .steps__glyph, #download-btn::before { forced-color-adjust: none; background: CanvasText; }
   .run__progress { forced-color-adjust: none; border-color: CanvasText; background: Canvas; }
   .run__progress::-webkit-progress-bar { background: Canvas; }
   .run__progress::-webkit-progress-value { background: Highlight; }
@@ -367,6 +401,11 @@ label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
 /* R1: reviewer line + code field (3a), OWNER TEST / DRY RUN banners (1a, 3b). Static by rule:
    no animation, never sticky, text not colour alone. */
 .reviewer { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--c-control); border-radius: var(--r-control); background: var(--c-surface-2); }
+/* R5 2.2: closed, one small accent line (no border, no ground); open, today's box */
+details.reviewer:not([open]) { border: 0; background: none; padding: 0; }
+.reviewer > summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--c-accent); font-size: .875rem; list-style: none; }
+.reviewer > summary::-webkit-details-marker { display: none; }
+.reviewer[open] > summary { margin-bottom: .5rem; }
 .reviewer p { margin: 0 0 .5rem; }
 .reviewer__code { white-space: nowrap; font-family: var(--mono); }
 .reviewer__form label { margin-top: .5rem; }

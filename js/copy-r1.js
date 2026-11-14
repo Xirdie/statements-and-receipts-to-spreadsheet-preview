@@ -5,7 +5,8 @@
 const CONTACT = 'business@xirdie.com';
 
 export const R = {
-  // 3a: the reviewer line under the greyed button
+  // 3a: the reviewer line under the greyed button; R5 2.2: one closed line in the Price step
+  reviewerSummary: () => 'Test preview: how to run the paid flow without paying',
   reviewerHead: () => 'Test preview: no real checkout here.',
   reviewerDry: () => 'To try the paid flow, enter a test code below: ',
   reviewerDryCodes: () => [['cs_dry_one_1', 'a $9 job'], ['cs_dry_pack_1', 'a 250-page pack'], ['cs_dry_plan_1', 'a monthly plan']],

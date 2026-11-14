@@ -52,7 +52,8 @@ export { fmtReset };
 export async function applyCode(raw) {
   const sid = String(raw || '').trim();
   const st = runtime.status || {};
-  if (st.owner && !isSessionId(sid) && isOwnerCode(sid)) {
+  // R5 2.1: the page's own preview flag is a second gate (a shipped page never accepts an owner code)
+  if (cfg().preview && st.owner && !isSessionId(sid) && isOwnerCode(sid)) {
     window.dispatchEvent(new CustomEvent('sumline:owner', { detail: { code: normaliseOwner(sid) } }));
     const { R } = await import('./copy-r1.js');
     return { text: R.ownerEntered(), kind: 'ok' };
@@ -79,8 +80,8 @@ function initRestore(root) {
   const label = root.querySelector('label');
   const out = root.querySelector('[data-role="result"]');
   const say = (t, kind) => { out.textContent = t; out.dataset.state = kind; out.setAttribute('role', kind === 'error' ? 'alert' : 'status'); };
-  // R1: "Purchase or test code" only on a dry or owner preview
-  const relabel = () => { const st = runtime.status || {}; label.textContent = st.mode === 'dry' || st.owner ? T.restoreLabelTest() : T.restoreLabel(); };
+  // R1: "Purchase or test code" only on a dry or owner preview; R5 2.1: and only on the studio's preview copy
+  const relabel = () => { const st = runtime.status || {}; label.textContent = cfg().preview && (st.mode === 'dry' || st.owner) ? T.restoreLabelTest() : T.restoreLabel(); };
   window.addEventListener('sumline:status', relabel);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
