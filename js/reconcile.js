@@ -12,6 +12,11 @@
 //
 // Output: { status: 'reconciled' | 'flagged' | 'unreconciled', failed, flipped,
 //   failedPages: [page numbers], flaggedRows, rows: [{page, n, check}], line, checks, note }
+//
+// R5-h (CTO ruling R5 2.5), option (a) because the ruling's first ask is that the equation hold:
+// line.sum = opening + credits - debits from the parsed rows is what "=" shows; when the running
+// balances end elsewhere (line.computed, a flagged statement) the line adds "rows carry the balance
+// to W" (lineFigures). line.computed, diff, status and flags are unchanged.
 
 export function toCents(x) {
   if (x === null || x === undefined || x === '') return null;
@@ -104,7 +109,7 @@ function runChain(st, sign) {
   }
   return {
     flat, flags, pageNotes, failedPages, closingNote,
-    line: { opening: start, derivedOpening: derived, credits, debits, computed: end, printed, diff: printed === null || end === null ? null : printed - end },
+    line: { opening: start, derivedOpening: derived, credits, debits, computed: end, printed, diff: printed === null || end === null ? null : printed - end, sum: start === null ? null : start + credits - debits },
   };
 }
 
@@ -138,7 +143,7 @@ function runTotals(st, sign) {
   const note = checks.map((c) => `${c.name === 'closing' || c.name === 'summary' ? 'computed' : 'rows sum to'} ${fmtCents(c.rows)} · ${words[c.name]} ${fmtCents(c.printed)} · ${c.ok ? 'match' : 'MISMATCH'}`).join('; ');
   return {
     flat, failedPages, checks, failed, note,
-    line: { opening: prevB, credits, debits, computed: prevB === null ? null : (card ? prevB + debits - credits : prevB + credits - debits), printed: newB, diff: null },
+    line: { opening: prevB, credits, debits, computed: prevB === null ? null : (card ? prevB + debits - credits : prevB + credits - debits), printed: newB, diff: null, sum: card || prevB === null ? null : prevB + credits - debits },
   };
 }
 
@@ -209,13 +214,25 @@ export function reconcileStatement(st, opts = {}) {
   };
 }
 
-// The one-line reconciliation shown on the page (design.md § The flow, step 3).
+// R5-h: the figures behind the line. sum = opening + credits - debits (what "=" shows); carry =
+// where the running balances end, only when that differs from sum (else null: no extra clause).
+// A line without .sum (an older result) falls back to line.computed, the pre-R5-h figure.
+export function lineFigures(line) {
+  const sum = line.sum === undefined || line.sum === null ? line.computed : line.sum;
+  const carry = line.computed !== null && line.computed !== undefined && sum !== line.computed ? line.computed : null;
+  return { sum, carry };
+}
+
+// The one-line reconciliation shown on the page (design.md § The flow, step 3, § UX S7).
 export function reconciliationLine(result) {
   const l = result.line;
   if (result.status === 'unreconciled') return `Unreconciled (no running balance)${result.note ? ' · ' + result.note : ''}`;
-  const head = `Opening ${fmtCents(l.opening)} + credits ${fmtCents(l.credits)} − debits ${fmtCents(l.debits)} = ${fmtCents(l.computed)}`;
+  const { sum, carry } = lineFigures(l);
+  const head = `Opening ${fmtCents(l.opening)} + credits ${fmtCents(l.credits)} − debits ${fmtCents(l.debits)} = ${fmtCents(sum)}`;
+  const mid = carry === null ? '' : ` · rows carry the balance to ${fmtCents(carry)}`;
   const tail = l.printed === null ? 'no closing balance printed' : `statement says ${fmtCents(l.printed)}`;
-  return `${head} · ${tail} · ${result.status === 'reconciled' ? 'reconciled' : `flagged (${result.flaggedRows} rows)`}`;
+  const n = result.flaggedRows;
+  return `${head}${mid} · ${tail} · ${result.status === 'reconciled' ? 'reconciled' : `flagged (${n} ${n === 1 ? 'row' : 'rows'})`}`;
 }
 
 // Receipts (design.md: fail if subtotal + tax + tip != total (±0.01) when a subtotal is

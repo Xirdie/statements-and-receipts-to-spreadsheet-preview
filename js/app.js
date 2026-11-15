@@ -17,7 +17,7 @@ let engineP = null;
 function engine() {
   if (!engineP) {
     engineP = Promise.all([import('./input.js'), import('./job.js'), import('./raster.js'), import('./reconcile.js'), import('./pdf-text.js')])
-      .then(([inp, job, raster, rec, pdf]) => { E = { ...inp, ...job, ...raster, fmtCents: rec.fmtCents, prefetchPdfjs: pdf.prefetchPdfjs }; return E; });
+      .then(([inp, job, raster, rec, pdf]) => { E = { ...inp, ...job, ...raster, fmtCents: rec.fmtCents, lineFigures: rec.lineFigures, prefetchPdfjs: pdf.prefetchPdfjs }; return E; });
     engineP.catch(() => { engineP = null; });
   }
   return engineP;
@@ -277,14 +277,16 @@ function reconBlock(res, dry = false) {
   }
   const l = res.line;
   const off = l.diff ? fmtCents(Math.abs(l.diff)) : '';
+  const { sum, carry } = E.lineFigures(l); // R5-h: "=" shows the sum; where the rows end only when it differs
   const term = (cls, label, val) => h('div', { class: `recon__term ${cls}` }, h('dt', {}, label), h('dd', {}, val));
   return h('div', { class: 'recon', dataset: { status: dry ? 'dry' : res.status } },
-    h('p', { class: 'visually-hidden' }, T.srLine(fmtCents(l.opening), fmtCents(l.credits), fmtCents(l.debits), fmtCents(l.computed), l.printed === null ? '' : fmtCents(l.printed), res.status, off)),
+    h('p', { class: 'visually-hidden' }, T.srLine(fmtCents(l.opening), fmtCents(l.credits), fmtCents(l.debits), fmtCents(sum), l.printed === null ? '' : fmtCents(l.printed), res.status, off, carry === null ? '' : fmtCents(carry))),
     h('dl', { class: 'recon__line', 'aria-hidden': 'true' },
       term('recon__term--opening', T.lnOpening(), fmtCents(l.opening)),
       term('recon__term--plus', T.lnCredits(), fmtCents(l.credits)),
       term('recon__term--minus', T.lnDebits(), fmtCents(l.debits)),
-      term('recon__term--total', T.lnComputed(), fmtCents(l.computed)),
+      term('recon__term--total', T.lnComputed(), fmtCents(sum)),
+      carry === null ? null : term('recon__term--carry', T.lnCarry(), fmtCents(carry)),
       term('recon__term--printed', T.lnPrinted(), l.printed === null ? T.lnNotPrinted() : fmtCents(l.printed))),
     h('p', { class: 'recon__status' }, chip(dry ? 'dry' : res.status, res.flaggedRows), off && !dry ? h('span', { class: 'recon__off' }, T.lnOffBy(off)) : null), dryNote);
 }
@@ -786,13 +788,19 @@ async function runJob({ sid, kind, reissue = false, owner = null }) {
     purchases.claim(sid);
     post({ type: 'claimed', sid });
   }
-  S.run = { sid, kind: d.kind || kind, ticket: d.ticket, left: d.left, cap: d.cap, reset: d.reset, models: new Set(), rerunDone: false, finishTried: false, startedAt: Date.now(), done: 0, ui: { progress, line, live }, lastLine: 0, reissued: reissue };
+  // round 6, 1.7: a statement ticket's reply says which model reads its scanned pages; only the exact
+  // 'sonnet' changes anything (no field or 'haiku' = today's flow, byte for byte)
+  S.run = { sid, kind: d.kind || kind, ticket: d.ticket, scan: scanOf(d), left: d.left, cap: d.cap, reset: d.reset, models: new Set(), rerunDone: false, finishTried: false, startedAt: Date.now(), done: 0, ui: { progress, line, live }, lastLine: 0, reissued: reissue };
   if (PAGE === 'paid') hidePaidWait();
   await E.loadParser();
   const all = [];
   for (let i = 0; i < job.n + job.t; i++) all.push(i);
   await passes(all);
 }
+
+const scanOf = (d) => (S.job && S.job.mode === 'st' && d && d.scan === 'sonnet' ? 'sonnet' : 'haiku');
+// Sonnet-first (1.7): the Worker reads this statement job's scanned pages on Sonnet from the start
+const sonnetFirst = () => !!(S.run && S.run.scan === 'sonnet' && S.job && S.job.mode === 'st');
 
 function sayProgress(text, force) {
   const R = S.run;
@@ -852,9 +860,11 @@ async function send(indices, ticket, model) {
   const { sendPages } = await lazyBatcher();
   const res = await sendPages({
     ticket, indices,
-    batch: model === 's' ? Math.min(L.SONNET_BATCH, S.status.batch) : S.status.batch,
+    batch: model === 's' || sonnetFirst() ? Math.min(L.SONNET_BATCH, S.status.batch) : S.status.batch, // 1.7: <= 6 when Sonnet reads first
     getPart,
-    onResult: (i, out) => { E.applyResult(S.job, i, out, model); R.models.add(model); if (out.dry && !R.dry && S.R1) { R.dry = true; els.runBody.prepend(S.R1.banner('dry', S.job.mode)); } if (model === 'h') { R.done++; pageRowsPreview(i); } },
+    // 1.7: under Sonnet-first an image part (index < n) on the first-pass ticket was read by Sonnet; after a
+    // re-issue the Worker may read it on Haiku (its rdone is set), so both are named then
+    onResult: (i, out) => { E.applyResult(S.job, i, out, model); if (model === 'h' && sonnetFirst() && i < S.job.n) { R.models.add('s'); if (R.reissued) R.models.add('h'); } else R.models.add(model); if (out.dry && !R.dry && S.R1) { R.dry = true; els.runBody.prepend(S.R1.banner('dry', S.job.mode)); } if (model === 'h') { R.done++; pageRowsPreview(i); } },
     onNotRead: (i, why, detail, refused) => {
       // owner tests name the cause: the Worker's refusal code (R3), the provider's reason (R2), or no reply
       const own = R.kind === 'owner';
@@ -878,7 +888,8 @@ async function passes(indices) {
     if (res.stop === 'job') return jobGone();
   }
   let sum = E.finalise(job);
-  if (sum.rerun.length && !R.rerunDone) {
+  // 1.7: Sonnet already read the scanned pages once, so no re-read step: a failing page stays flagged
+  if (sum.rerun.length && !R.rerunDone && !sonnetFirst()) {
     R.rerunDone = true;
     sayProgress(T.rerunLine(sum.rerun.length), true);
     const rr = await api.rerun(R.ticket, sum.rerun);
@@ -912,6 +923,7 @@ async function resume(indices) {
     return startError(r, R.sid, R.kind, () => resume(indices));
   }
   R.ticket = r.data.ticket;
+  if (r.data.scan !== undefined) R.scan = scanOf(r.data); // 1.7: the re-issued ticket's word
   R.reissued = true;
   // after a re-issue the Worker cleared the image bits; resend only what this tab has no result for
   const missing = indices.filter((i) => { const e = S.job.index[i]; const t = e.unit.type === 'rc' ? e.unit : e.page; return !(t.out || t.src === 'ai'); });
@@ -994,7 +1006,7 @@ function done(gaveUp) {
   const browserOnly = job.n === 0 && job.t === 0;
   out.append(h('div', { class: 'disclosure', id: 'disclosure' },
     h('p', { class: 'disclosure__label' }, h('strong', {}, T.disclosureLabel())),
-    h('p', {}, browserOnly ? T.browserOnly() : T.aiDisclosure()),
+    h('p', {}, browserOnly ? T.browserOnly() : T.aiDisclosure(R.scan)),
     job.mode === 'rc' ? h('p', {}, T.receiptsNote()) : null));
   const fmtBox = h('fieldset', { class: 'formats' }, h('legend', { class: 'visually-hidden' }, T.formatLegend()),
     ['xlsx', 'csv'].map((f) => {
@@ -1067,6 +1079,7 @@ async function download(fmt) {
     models: [R && R.models.has('h') ? L.MODELS.haiku : null, R && R.models.has('s') ? L.MODELS.sonnet : null].filter(Boolean),
     runDate: new Date().toISOString().slice(0, 10),
     browserOnly: job.n === 0 && job.t === 0,
+    scan: R ? R.scan : 'haiku', // 1.7
   };
   const isOwner = R && R.kind === 'owner';
   const isDry = !isOwner && !!S.R1 && runIsDry(job);

@@ -517,6 +517,81 @@ export function latestDateIn(text, order = 'MDY') {
   return best === null ? null : new Date(best).toISOString().slice(0, 10);
 }
 
+// ---------- round 6, 1.3: code guards on the AI record path (revisions/round-6.md 1.3, ruling R6-a) ----------
+// Pure, per page, after the record rows are built and before reconcileStatement. Neither guard changes
+// an amount; the forward-line guard drops only a 0.00 forward/opening/closing line whose balance the chain
+// already holds; the re-attach moves a balance only where the arithmetic fixes its row. Rows:
+// [{desc, amount, balance, ...}] with amount/balance numbers or null (as read: a null amount stays null,
+// so R is unknown past it and nothing fires). ctx: {opening, closing} = the page's printed
+// opening_balance / closing_balance (numbers or null), prevCents = the previous page's last running
+// balance in cents (null when unknown). The blank-date fill (1.3 c) is specified but NOT applied this
+// round: the diagnostic showed no blank dates (evidence rule, 1.2).
+export const FORWARD_LINE = /\bbalance\s+(brought|carried)\s+forward\b|\bbalance\s+[bc]\/f\b|\b(opening|closing)\s+balance\b/i;
+const cts = (x) => (typeof x === 'number' && Number.isFinite(x) ? Math.round(x * 100) : null);
+const startOf = (ctx) => { const o = cts(ctx.opening); return o !== null ? o : (Number.isInteger(ctx.prevCents) ? ctx.prevCents : null); };
+// the running balance after each row: resets at every printed balance, unknown past a null amount
+const step = (run, r) => { const b = cts(r.balance), a = cts(r.amount); return b !== null ? b : run !== null && a !== null ? run + a : null; };
+
+// (b) Drop a record only if: the description is a forward / opening / closing balance line (no bare
+// "B/F", "total" or "subtotal"), the amount is 0, and the balance equals, to the cent, the page's
+// opening_balance or the running balance after the previous row. A null balance or a non-zero amount
+// always stays (R6-a: a 0.00 line the statement really prints is never dropped on a guess).
+export function forwardLineGuard(rows, ctx = {}) {
+  const op = cts(ctx.opening);
+  let run = startOf(ctx);
+  const kept = [], dropped = [];
+  for (const r of rows) {
+    const b = cts(r.balance);
+    if (FORWARD_LINE.test(String(r.desc ?? '')) && cts(r.amount) === 0 && b !== null && (b === op || (run !== null && b === run))) { dropped.push(r); continue; }
+    kept.push(r);
+    run = step(run, r);
+  }
+  return { rows: kept, dropped };
+}
+
+// (a) Move b[i+1] up to row i only if: L (the last known balance before row i: an earlier printed
+// balance on the page, else the page's opening_balance, else the previous page's running end) is
+// known; b[i] is null and b[i+1] is not; b[i+1] equals R(i) = L + the amounts after L up to row i, to
+// the cent; a[i+1] is not 0 (so b[i+1] is not R(i+1)); and a later check exists on the page (a
+// printed balance after row i+1, or the page's closing_balance) so a[i+1] is still checked. Applied
+// down the page, R recomputed after each move, so a run of shifted rows is corrected step by step.
+export function balanceReattach(rows, ctx = {}) {
+  const out = rows.map((r) => ({ ...r }));
+  const closing = cts(ctx.closing);
+  const moved = [];
+  let run = startOf(ctx); // R(i-1)
+  for (let i = 0; i < out.length; i++) {
+    const a = cts(out[i].amount);
+    const Ri = run !== null && a !== null ? run + a : null;
+    if (i < out.length - 1 && Ri !== null && cts(out[i].balance) === null) {
+      const nb = cts(out[i + 1].balance), na = cts(out[i + 1].amount);
+      const later = closing !== null || out.slice(i + 2).some((x) => cts(x.balance) !== null);
+      if (nb !== null && nb === Ri && na !== null && na !== 0 && later) {
+        out[i].balance = out[i + 1].balance;
+        out[i + 1].balance = null;
+        moved.push(out[i]);
+      }
+    }
+    run = step(run, out[i]);
+  }
+  return { rows: out, moved, end: run };
+}
+
+// The page's running end in cents (for the next page's L), with no guard applied.
+export function pageEndCents(rows, ctx = {}) {
+  let run = startOf(ctx);
+  for (const r of rows) run = step(run, r);
+  return run;
+}
+
+// Both guards on one page: the forward-line guard first (it never moves the running balance), then
+// the re-attach. -> {rows, dropped, moved, end (cents | null)}
+export function guardPage(rows, ctx = {}) {
+  const f = forwardLineGuard(rows, ctx);
+  const m = balanceReattach(f.rows, ctx);
+  return { rows: m.rows, dropped: f.dropped, moved: m.moved, end: m.end };
+}
+
 // records: [{ page, out: record_page tool input | null, truncated?, schemaError? }] for ONE
 // statement, in page order. Returns the reconcile.js statement shape.
 export function statementFromRecords(records) {
@@ -528,24 +603,42 @@ export function statementFromRecords(records) {
   const firstNum = (k) => { for (const o of outs) if (typeof o[k] === 'number') return o[k]; return null; };
   const lastNum = (k) => { for (let i = outs.length - 1; i >= 0; i--) if (typeof outs[i][k] === 'number') return outs[i][k]; return null; };
   const summary = (outs.find((o) => o.summary && typeof o.summary === 'object') || {}).summary || null;
-  const hasBal = outs.some((o) => o.has_balance_column === true);
+  // round 6 (1.4 may trim the schema): has_balance_column when present, else any row with a balance
+  const balCol = (o) => (typeof o.has_balance_column === 'boolean' ? o.has_balance_column : Array.isArray(o.rows) && o.rows.some((x) => typeof x.b === 'number'));
+  const hasBal = outs.some(balCol);
   const kind = summary && typeof summary.previous_balance === 'number' && typeof summary.new_balance === 'number' && !hasBal ? 'card' : 'bank';
+  // 1.3: the guards run per page in order; `guards` lists each firing for the harness replay
+  const guards = { bf_dropped: [], balance_moved: [], date_filled: [] }; // date_filled: 1.3 c, not applied this round
+  let prevCents = null;
+  const pages = records.map((r) => {
+    let rows = r.out && Array.isArray(r.out.rows) ? r.out.rows.map((x) => ({
+      date: normaliseDate(x.d, { order, latest }), desc: String(x.t ?? ''), amount: typeof x.a === 'number' ? x.a : null,
+      balance: typeof x.b === 'number' ? x.b : null,
+    })) : [];
+    if (r.out) {
+      const g = guardPage(rows, { opening: r.out.opening_balance, closing: r.out.closing_balance, prevCents });
+      g.dropped.forEach((x) => guards.bf_dropped.push({ page: r.page, text: x.desc, amount: x.amount, balance: x.balance }));
+      g.moved.forEach((x) => guards.balance_moved.push({ page: r.page, text: x.desc, amount: x.amount, balance: x.balance }));
+      rows = g.rows;
+      prevCents = g.end;
+    } else prevCents = null; // an unread page breaks the chain: no L carried past it
+    return {
+      page: r.page,
+      truncated: !!r.truncated,
+      schemaError: !!r.schemaError,
+      // has_transactions when present, else rows were read
+      hasTransactions: r.out ? (typeof r.out.has_transactions === 'boolean' ? r.out.has_transactions : rows.length > 0) : undefined,
+      rows,
+    };
+  });
   return {
     kind,
     opening: firstNum('opening_balance') ?? (summary ? summary.previous_balance ?? null : null),
     closing: lastNum('closing_balance') ?? (summary ? summary.new_balance ?? null : null),
     summary,
     hasBalanceColumn: hasBal,
-    pages: records.map((r) => ({
-      page: r.page,
-      truncated: !!r.truncated,
-      schemaError: !!r.schemaError,
-      hasTransactions: r.out ? r.out.has_transactions === true : undefined,
-      rows: r.out && Array.isArray(r.out.rows) ? r.out.rows.map((x) => ({
-        date: normaliseDate(x.d, { order, latest }), desc: String(x.t ?? ''), amount: typeof x.a === 'number' ? x.a : null,
-        balance: typeof x.b === 'number' ? x.b : null,
-      })) : [],
-    })),
+    pages,
+    guards,
   };
 }
 

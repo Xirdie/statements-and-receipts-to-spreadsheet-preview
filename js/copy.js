@@ -97,7 +97,8 @@ const COPY = {
   lnPrinted: () => 'statement says',
   lnNotPrinted: () => 'not printed',
   lnOffBy: (x) => `off by ${x}`,
-  srLine: (o, c, d, comp, printed, status, off) => `Opening balance ${o}, plus credits ${c}, minus debits ${d}, equals ${comp}. ${printed ? `The statement says ${printed}.` : 'The statement prints no closing balance.'} ${status === 'reconciled' ? 'Reconciled.' : `Flagged${off ? `: off by ${off}` : ''}.`}`,
+  lnCarry: () => 'rows carry the balance to', // R5-h: only when the running balances end away from the sum
+  srLine: (o, c, d, comp, printed, status, off, carry) => `Opening balance ${o}, plus credits ${c}, minus debits ${d}, equals ${comp}. ${carry ? `The rows carry the balance to ${carry}. ` : ''}${printed ? `The statement says ${printed}.` : 'The statement prints no closing balance.'} ${status === 'reconciled' ? 'Reconciled.' : `Flagged${off ? `: off by ${off}` : ''}.`}`,
   lineCard: (rows, printed, ok, diff, name) => `Rows sum to ${rows} · statement's ${name === 'debits' ? 'debits' : 'charges'} total ${printed} · ${ok ? 'totals match' : `totals differ by ${diff}`}. No running balance, so each row can't be checked on its own.`, // qa #16
   lineNoBalance: () => 'Unreconciled (no running balance). This statement prints no balance to check the rows against; check the total yourself.',
   lineReceipts: (ok, total, flagged, joined = 0, none = 0) => (total > 0
@@ -202,7 +203,12 @@ const COPY = {
   refundSubject: (sid) => `Sumline refund request ${sid}`,
   refundBody: (sid, files, n) => `Purchase code: ${sid}\nStatement file: ${files}\nFlagged rows: ${n}\n\nPlease don't paste account numbers.`,
   disclosureLabel: () => 'Automated output: AI-extracted. Check against your statement before use. Not tax or accounting advice.',
-  aiDisclosure: () => "Automated extraction. Scanned pages and receipts are read by AI (Claude Haiku 5.5 by Anthropic; pages whose balance didn't add up are re-read by Claude Sonnet 5.5) and checked by arithmetic, not by a person. Text PDFs are read by code in your browser.",
+  // 1.7: scan 'sonnet' (a statement job the Worker reads Sonnet-first) drops the re-read promise, which
+  // would be false for it; every other job gets today's sentence. The Sonnet variant is result-page only
+  // and unreachable until EXTRACT_MODEL_SCAN is flipped (owner approval, round 6 amendment a).
+  aiDisclosure: (scan) => (scan === 'sonnet'
+    ? "Automated extraction. Scanned statement pages are read by AI (Claude Sonnet 5.5 by Anthropic; Claude Haiku 5.5 for any text page the code couldn't read) and checked by arithmetic, not by a person. A page that doesn't add up is flagged, not re-read. Text PDFs are read by code in your browser."
+    : "Automated extraction. Scanned pages and receipts are read by AI (Claude Haiku 5.5 by Anthropic; pages whose balance didn't add up are re-read by Claude Sonnet 5.5) and checked by arithmetic, not by a person. Text PDFs are read by code in your browser."),
   browserOnly: () => 'This job was read by code in your browser; no AI was used.',
   receiptsNote: () => 'Categories are suggestions, not advice.',
   formatLegend: () => 'File format',
@@ -230,10 +236,10 @@ const COPY = {
   sumAutomated: () => 'Automated output: read by AI and by code, checked by arithmetic, not by a person.',
   sumModels: (m) => `Models: ${m}`,
   sumRunDate: (d) => `Run date: ${d}`,
-  sumLegend: () => 'Status legend: ok = the row carries the balance forward · ok (re-read) = re-read once by a stronger model, now adds up · FLAGGED = does not add up, check it against your statement · NOT READ = the page could not be read · unreconciled = no running balance to check against',
+  sumLegend: (scan) => (scan === 'sonnet' ? 'Status legend: ok = the row carries the balance forward' : 'Status legend: ok = the row carries the balance forward · ok (re-read) = re-read once by a stronger model, now adds up') + ' · FLAGGED = does not add up, check it against your statement · NOT READ = the page could not be read · unreconciled = no running balance to check against',
   sumLegendRc: () => "no receipt on this page / in this image = read as not a receipt · no amounts on this page / in this image = no subtotal, tax, tip or total was read · neither is flagged or counted as a receipt, and each page read still counts toward the job's pages · a page with no amounts next to a receipt in the same PDF is joined to that receipt (its note names the pages)", // R4 3
   sumColStatement: () => 'Statement', sumColOpening: () => 'Opening', sumColCredits: () => 'Credits', sumColDebits: () => 'Debits',
-  sumColComputed: () => 'Computed closing', sumColPrinted: () => 'Printed closing', sumColDifference: () => 'Difference', sumColStatus: () => 'Status',
+  sumColComputed: () => 'Opening + credits − debits', sumColCarry: () => 'Rows carry the balance to', sumColPrinted: () => 'Printed closing', sumColDifference: () => 'Difference (printed − rows)', sumColStatus: () => 'Status', // R5-h
 
   // footer (S9), Restore / Forget (S8), Report a problem
   footerNav: () => 'Sumline',

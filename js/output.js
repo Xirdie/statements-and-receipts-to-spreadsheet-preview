@@ -4,7 +4,7 @@
 // with the disclaimer and the AI disclosure, then the per-statement reconciliation and
 // INCOMPLETE when pages were NOT READ.
 import { T } from './copy.js';
-import { fmtCents } from './reconcile.js';
+import { fmtCents, lineFigures } from './reconcile.js';
 
 const ST_COLS = ['file', 'page', 'date', 'description', 'debit', 'credit', 'amount', 'balance', '#check', 'note'];
 const RC_COLS = ['file', 'image', 'date', 'vendor', 'subtotal', 'tax', 'tip', 'total', 'currency', 'payment', 'card_last4', 'category (suggestion)', '#check', 'note'];
@@ -71,22 +71,26 @@ function summaryAoa(job, info) {
   // row 1 opens with the disclaimer (D14); an owner test or dry run adds its label beside it (R1)
   const aoa = [
     info.tagLine ? [T.disclosureLabel(), info.tagLine] : [T.disclosureLabel()],
-    [info.browserOnly ? T.browserOnly() : T.aiDisclosure()],
+    [info.browserOnly ? T.browserOnly() : T.aiDisclosure(info.scan)],
     [T.sumAutomated()],
     [T.sumModels(info.models.join(', ') || '-')],
     [T.sumRunDate(info.runDate)],
-    [T.sumLegend()],
+    [T.sumLegend(info.scan)], // 1.7: no "ok (re-read)" entry when Sonnet read first
   ];
   if (job.mode === 'rc') { aoa.push([T.receiptsNote()]); aoa.push([T.sumLegendRc()]); } // R4 3: the receipts legend
   aoa.push([]);
   if (job.mode === 'st') {
-    aoa.push([T.sumColStatement(), T.sumColOpening(), T.sumColCredits(), T.sumColDebits(), T.sumColComputed(), T.sumColPrinted(), T.sumColDifference(), T.sumColStatus()]);
+    // R5-h: "Opening + credits − debits" holds that sum (blank for a card's totals check, where the
+    // equation does not apply); "Rows carry the balance to" is where the rows end, so each column is
+    // what its header says, as on the page
+    aoa.push([T.sumColStatement(), T.sumColOpening(), T.sumColCredits(), T.sumColDebits(), T.sumColComputed(), T.sumColCarry(), T.sumColPrinted(), T.sumColDifference(), T.sumColStatus()]);
     for (const u of job.units) {
       const r = u.result;
-      if (!r) { aoa.push([u.name, '', '', '', '', '', '', T.chipUnreconciled()]); continue; }
+      if (!r) { aoa.push([u.name, '', '', '', '', '', '', '', T.chipUnreconciled()]); continue; }
       const l = r.line;
       const status = r.status === 'reconciled' ? T.chipReconciled() : r.status === 'flagged' ? T.chipFlagged(r.flaggedRows) : T.chipUnreconciled();
-      aoa.push([u.name, money(l.opening), money(l.credits), money(l.debits), money(l.computed), money(l.printed), l.diff === null ? '' : money(l.diff), status]);
+      const sum = r.status === 'unreconciled' ? l.sum : lineFigures(l).sum;
+      aoa.push([u.name, money(l.opening), money(l.credits), money(l.debits), money(sum), money(l.computed), money(l.printed), l.diff === null ? '' : money(l.diff), status]);
     }
   } else {
     aoa.push([T.lineReceipts(job.summary.okReceipts, job.summary.receipts, job.summary.flaggedReceipts, job.summary.joinedPages, job.summary.noReceiptPages)]);

@@ -128,6 +128,25 @@ export async function buildJob(mode, files) {
   return job;
 }
 
+// round 6, 1.3: column-parser.js guardPage on each AI-read page of a statement, in page order, once per
+// read (applyResult clears `guarded`). L carries across pages as in statementFromRecords: the page's
+// opening_balance, else the previous page's running end; an unread page breaks it. Amounts are the
+// record's as read (a null amount stays null for the guards, then shows as 0 as before).
+function guardUnit(u) {
+  let prev = null;
+  for (const p of u.pages) {
+    if (p.notRead || !(p.isText || p.src === 'ai')) { prev = null; continue; }
+    const ai = p.src === 'ai' && p.out;
+    const ctx = ai ? { opening: num(p.out.opening_balance), closing: num(p.out.closing_balance), prevCents: prev } : { opening: p.opening ?? null, closing: p.closing ?? null, prevCents: prev };
+    if (ai && !p.guarded && Array.isArray(p.out.rows) && p.out.rows.length === p.rows.length) {
+      const g = CP.guardPage(p.rows.map((r, k) => ({ ...r, amount: num(p.out.rows[k].a) })), ctx);
+      p.rows = g.rows.map((r) => ({ ...r, amount: r.amount ?? 0 }));
+      p.guarded = true;
+      prev = g.end;
+    } else prev = CP.pageEndCents(p.rows, ctx);
+  }
+}
+
 function chainPage(p) {
   return { page: p.page, rows: p.rows, opening: p.opening, closing: p.closing, truncated: p.truncated, schemaError: p.schemaError, hasTransactions: p.hasTransactions };
 }
@@ -159,7 +178,9 @@ export function applyResult(job, i, res, model) {
   target.out = ok ? out : null;
   target.schemaError = !ok;
   target.truncated = !!res.truncated;
-  target.hasTransactions = ok ? out.has_transactions : undefined;
+  // round 6 (1.4 may trim the schema): has_transactions when present, else rows were read
+  target.hasTransactions = ok ? (typeof out.has_transactions === 'boolean' ? out.has_transactions : out.rows.length > 0) : undefined;
+  target.guarded = false; // 1.3: fresh rows from the Worker; finalise guards them once
   target.src = 'ai';
   const period = ok ? out.statement_period : '';
   const fy = e.unit.parsed && e.unit.parsed.period ? Number(String(e.unit.parsed.period.end).slice(0, 4)) : undefined;
@@ -284,6 +305,7 @@ export function finalise(job) {
       continue;
     }
     sum.statements++;
+    if (CP && CP.guardPage) guardUnit(u); // 1.3: the same guards the harness measures (statementFromRecords)
     const live = u.pages.filter((p) => !p.notRead && (p.isText || p.src === 'ai'));
     const ai = u.pages.filter((p) => p.src === 'ai' && p.out);
     const anyBal = live.some((p) => p.rows.some((r) => r.balance !== null && r.balance !== undefined));
